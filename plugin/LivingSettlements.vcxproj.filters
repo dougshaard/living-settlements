@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx</Extensions>
+    </Filter>
+    <Filter Include="Source Files\core">
+      <UniqueIdentifier>{a1e2c3d4-0001-4a01-9c01-000000000001}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\domain">
+      <UniqueIdentifier>{a1e2c3d4-0002-4a02-9c02-000000000002}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\pocs">
+      <UniqueIdentifier>{a1e2c3d4-0003-4a03-9c03-000000000003}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\core">
+      <UniqueIdentifier>{a1e2c3d4-0004-4a04-9c04-000000000004}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\domain">
+      <UniqueIdentifier>{a1e2c3d4-0005-4a05-9c05-000000000005}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\pocs">
+      <UniqueIdentifier>{a1e2c3d4-0006-4a06-9c06-000000000006}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\Diagnostics.cpp">
+      <Filter>Source Files\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\TickHost.cpp">
+      <Filter>Source Files\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\VersionGate.cpp">
+      <Filter>Source Files\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\domain\ReservationManager.cpp">
+      <Filter>Source Files\domain</Filter>
+    </ClCompile>
+    <ClCompile Include="src\pocs\Poc001_EnumerarPersonagens.cpp">
+      <Filter>Source Files\pocs</Filter>
+    </ClCompile>
+    <ClCompile Include="src\pocs\Poc002_EnumerarBase.cpp">
+      <Filter>Source Files\pocs</Filter>
+    </ClCompile>
+    <ClCompile Include="src\pocs\Poc011_EmitirOrdem.cpp">
+      <Filter>Source Files\pocs</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\core\Diagnostics.h">
+      <Filter>Header Files\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\LsConfig.h">
+      <Filter>Header Files\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\TickHost.h">
+      <Filter>Header Files\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\VersionGate.h">
+      <Filter>Header Files\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\domain\ReservationManager.h">
+      <Filter>Header Files\domain</Filter>
+    </ClInclude>
+    <ClInclude Include="src\pocs\Poc001_EnumerarPersonagens.h">
+      <Filter>Header Files\pocs</Filter>
+    </ClInclude>
+    <ClInclude Include="src\pocs\Poc002_EnumerarBase.h">
+      <Filter>Header Files\pocs</Filter>
+    </ClInclude>
+    <ClInclude Include="src\pocs\Poc011_EmitirOrdem.h">
+      <Filter>Header Files\pocs</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

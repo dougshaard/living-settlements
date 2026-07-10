@@ -1,0 +1,39 @@
+# build VS
+*.suo
+*.user
+*.sdf
+*.opensdf
+*.opendb
+*.VC.db
+ipch/
+.vs/
+x64/
+Debug/
+Release/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.tlog
+*.lastbuildstate
+*.log.txt
+
+# binários de saída (a DLL vai pro pacote, não pro git)
+*.dll
+*.lib
+*.exe
+
+# testes compilados
+tests/unit/test_reservation
+tests/unit/*.o
+
+# lixo de editor
+*.swp
+Thumbs.db
+
+# docs internos e de continuacao -- mantidos localmente, nao publicados
+docs/
+HANDOFF.md
+tools/docs/
+tests/unit/verify_logic_mirror.py

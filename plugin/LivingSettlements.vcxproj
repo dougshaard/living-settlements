@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Living Settlements - plugin KenshiLib/RE_Kenshi (Etapa 0).
+     Modelado nos exemplos oficiais (HelloWorld/CharacterHighlight):
+     toolset v100 obrigatorio (ABI VS2010), x64 apenas, compilar em
+     RELEASE (Debug esta quebrado no KenshiLib, ver README).
+     Paths resolvem via variaveis de ambiente do KenshiLib_Examples_deps
+     (rodar Setup.bat do deps antes): KENSHILIB_DIR, KENSHILIB_DEPS_DIR,
+     BOOST_INCLUDE_PATH, BOOST_ROOT. -->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>16.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{d2251ca4-4105-48ed-9c7f-5e300b1ca643}</ProjectGuid>
+    <RootNamespace>LivingSettlements</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v100</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v100</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <IncludePath>$(ProjectDir)src;$(KENSHILIB_DEPS_DIR);$(KENSHILIB_DIR)/Include;$(KENSHILIB_DIR)/Include/ogre;$(KENSHILIB_DIR)/Include/mygui;$(BOOST_INCLUDE_PATH);$(IncludePath)</IncludePath>
+    <LibraryPath>$(BOOST_ROOT)/stage/lib;$(KENSHILIB_DIR)/Libraries/;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <IncludePath>$(ProjectDir)src;$(KENSHILIB_DEPS_DIR);$(KENSHILIB_DIR)/Include;$(KENSHILIB_DIR)/Include/ogre;$(KENSHILIB_DIR)/Include/mygui;$(BOOST_INCLUDE_PATH);$(IncludePath)</IncludePath>
+    <LibraryPath>$(BOOST_ROOT)/stage/lib;$(KENSHILIB_DIR)/Libraries/;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>KenshiLib.lib;OgreMain_x64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>KenshiLib.lib;OgreMain_x64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\core\Diagnostics.cpp" />
+    <ClCompile Include="src\core\TickHost.cpp" />
+    <ClCompile Include="src\core\VersionGate.cpp" />
+    <ClCompile Include="src\domain\ReservationManager.cpp" />
+    <ClCompile Include="src\pocs\Poc001_EnumerarPersonagens.cpp" />
+    <ClCompile Include="src\pocs\Poc002_EnumerarBase.cpp" />
+    <ClCompile Include="src\pocs\Poc003_DetectarAmeaca.cpp" />
+    <ClCompile Include="src\pocs\Poc011_EmitirOrdem.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\core\Diagnostics.h" />
+    <ClInclude Include="src\core\LsConfig.h" />
+    <ClInclude Include="src\core\TickHost.h" />
+    <ClInclude Include="src\core\VersionGate.h" />
+    <ClInclude Include="src\domain\ReservationManager.h" />
+    <ClInclude Include="src\pocs\Poc001_EnumerarPersonagens.h" />
+    <ClInclude Include="src\pocs\Poc002_EnumerarBase.h" />
+    <ClInclude Include="src\pocs\Poc003_DetectarAmeaca.h" />
+    <ClInclude Include="src\pocs\Poc011_EmitirOrdem.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
