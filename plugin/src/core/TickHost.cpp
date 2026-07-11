@@ -6,6 +6,8 @@
 #include "pocs/Poc002_EnumerarBase.h"
 #include "pocs/Poc003_DetectarAmeaca.h"
 #include "pocs/Poc011_EmitirOrdem.h"
+#include "pocs/Poc020_RetratoTrabalho.h"
+#include "pocs/Poc021_LifecycleProbe.h"
 
 #include <core/Functions.h>   // KenshiLib::AddHook / GetRealAddress
 #include <kenshi/GameWorld.h> // GameWorld::_NV_mainLoop_GPUSensitiveStuff, isPaused
@@ -71,6 +73,13 @@ void runPocRound(GameWorld* world, float accumulated) {
             diag::error("POC-003 lancou excecao C++ -- POC-003 abortada");
         }
     }
+    if (LS_ENABLE_POC020) {
+        try {
+            pocs::poc020Run(world);
+        } catch (...) {
+            diag::error("POC-020 (Marco 0) lancou excecao C++ -- abortada");
+        }
+    }
     if (LS_ENABLE_POC011) {
         try {
             pocs::poc011Tick(world);
@@ -87,6 +96,18 @@ void runPocRound(GameWorld* world, float accumulated) {
 // (mesmo padrão do exemplo CharacterHighlight).
 void mainLoopHook(GameWorld* thisptr, float time) {
     ++g_tickCount;
+
+    // Probe de ciclo de vida (M2): TODO tick, ANTES do guard de pausa/
+    // throttle -- e o unico jeito de observar os sinais durante um save/
+    // load/reset (que podem nao coincidir com uma rodada de POC). So le
+    // flags primitivos e edge-loga; nunca pode derrubar o tick.
+    if (LS_ENABLE_POC021 && thisptr != 0) {
+        try {
+            pocs::poc021Probe(thisptr);
+        } catch (...) {
+            diag::error("POC-021 (probe M2) lancou excecao C++ -- ignorada");
+        }
+    }
 
     // Guardas: mundo ausente ou pausado => nada a observar neste tick.
     // (isPaused: o jogador pausou; não gastamos orçamento de POC.)

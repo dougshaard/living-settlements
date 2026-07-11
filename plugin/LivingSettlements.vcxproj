@@ -90,22 +90,46 @@
     <ClCompile Include="src\core\Diagnostics.cpp" />
     <ClCompile Include="src\core\TickHost.cpp" />
     <ClCompile Include="src\core\VersionGate.cpp" />
+    <ClCompile Include="src\core\LifecycleGate.cpp" />
     <ClCompile Include="src\domain\ReservationManager.cpp" />
+    <ClCompile Include="src\domain\WorkModel.cpp" />
+    <ClCompile Include="src\domain\OperatorReconciler.cpp" />
+    <ClCompile Include="src\domain\TaskBoard.cpp" />
+    <ClCompile Include="src\domain\WorkerPool.cpp" />
+    <ClCompile Include="src\domain\Debouncer.cpp" />
+    <ClCompile Include="src\domain\IntentLedger.cpp" />
+    <ClCompile Include="src\domain\Assignment.cpp" />
+    <ClCompile Include="src\adapters\SnapshotBuilder.cpp" />
+    <ClCompile Include="src\adapters\OrderEmitter.cpp" />
     <ClCompile Include="src\pocs\Poc001_EnumerarPersonagens.cpp" />
     <ClCompile Include="src\pocs\Poc002_EnumerarBase.cpp" />
     <ClCompile Include="src\pocs\Poc003_DetectarAmeaca.cpp" />
     <ClCompile Include="src\pocs\Poc011_EmitirOrdem.cpp" />
+    <ClCompile Include="src\pocs\Poc020_RetratoTrabalho.cpp" />
+    <ClCompile Include="src\pocs\Poc021_LifecycleProbe.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\core\Diagnostics.h" />
     <ClInclude Include="src\core\LsConfig.h" />
     <ClInclude Include="src\core\TickHost.h" />
     <ClInclude Include="src\core\VersionGate.h" />
+    <ClInclude Include="src\core\LifecycleGate.h" />
     <ClInclude Include="src\domain\ReservationManager.h" />
+    <ClInclude Include="src\domain\WorkModel.h" />
+    <ClInclude Include="src\domain\OperatorReconciler.h" />
+    <ClInclude Include="src\domain\TaskBoard.h" />
+    <ClInclude Include="src\domain\WorkerPool.h" />
+    <ClInclude Include="src\domain\Debouncer.h" />
+    <ClInclude Include="src\domain\IntentLedger.h" />
+    <ClInclude Include="src\domain\Assignment.h" />
+    <ClInclude Include="src\adapters\SnapshotBuilder.h" />
+    <ClInclude Include="src\adapters\OrderEmitter.h" />
     <ClInclude Include="src\pocs\Poc001_EnumerarPersonagens.h" />
     <ClInclude Include="src\pocs\Poc002_EnumerarBase.h" />
     <ClInclude Include="src\pocs\Poc003_DetectarAmeaca.h" />
     <ClInclude Include="src\pocs\Poc011_EmitirOrdem.h" />
+    <ClInclude Include="src\pocs\Poc020_RetratoTrabalho.h" />
+    <ClInclude Include="src\pocs\Poc021_LifecycleProbe.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

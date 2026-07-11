@@ -1,20 +1,20 @@
 # fcs/
 
-Parte FCS (dados) do mod — **aditiva por padrão** (ADR-010).
+A parte de dados (FCS) do mod. Por padrão ela é aditiva — não altera registros
+existentes do jogo, só acrescenta.
 
-## Etapa 0
+## Por enquanto
 
-A Etapa 0 só precisa de um **mod FCS vazio** para o RE_Kenshi carregar a DLL:
+Nesta fase o mod só precisa de um **mod FCS vazio** pra o RE_Kenshi ter onde carregar
+a DLL:
 
-1. Abrir o **Forgotten Construction Set** (FCS).
-2. Criar um novo mod chamado `LivingSettlements` e salvar.
-   → isso cria `mods/LivingSettlements/LivingSettlements.mod` na pasta do jogo.
-3. O arquivo `.mod` é binário do FCS — não é versionado aqui; apenas o
-   processo é documentado.
+1. Abra o Forgotten Construction Set (FCS).
+2. Crie um mod novo chamado `LivingSettlements` e salve. Isso cria o
+   `mods/LivingSettlements/LivingSettlements.mod` na pasta do jogo.
+3. O `.mod` é um binário do FCS e não é versionado aqui — só o processo fica documentado.
 
-## Etapas futuras
+## Mais pra frente
 
-- `mod/` — registros FCS do mod (AI Packages de guarda p/ POC-016, presets
-  de profissões, edifícios/armazenamentos adicionais).
-- `fcs_extended_plugins/` — plugins de autoria FCS_extended (OPEN-005: só
-  autoria, ou runtime também?).
+- `mod/` — os registros FCS do mod (pacotes de IA de guarda, presets de profissão,
+  edifícios e armazenamentos extras).
+- `fcs_extended_plugins/` — plugins de autoria feita pelo FCS_extended.

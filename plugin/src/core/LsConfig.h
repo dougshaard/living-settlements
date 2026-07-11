@@ -40,6 +40,38 @@ static const int   LS_POC011_GRACE_ROUNDS = 2;   // rodadas de leitura antes de 
 static const int   LS_POC011_OBSERVE_ROUNDS = 6; // janela de observação pós-emissão
 static const float LS_POC011_OFFSET_METERS = 4.0f; // deslocamento pedido
 
+// -----------------------------------------------------------------
+// Marco 0 -- POC do nucleo de coordenacao de trabalho (leitura + sombra).
+// Retrato do trabalho + dominio em SOMBRA (reserva 5.1, debounce, ledger,
+// assignment). ZERO escrita. Fonte: docs/design/nucleo-de-trabalho.md.
+// -----------------------------------------------------------------
+static const bool  LS_ENABLE_POC020 = true;
+
+// GATE MESTRE DE ESCRITA. Fica false ate H1/H2 serem provados in-game
+// (Marco 2). Com false, o LifecycleGate nunca retorna OBSERVE_AND_ACT e
+// o OrderEmitter nunca escreve -- postura SOMBRA (invariante 15).
+static const bool  LS_M0_WRITES_ENABLED = false;
+
+static const float  LS_M0_RADIUS = 128.0f;   // piso; TownBase::getRadius() amplia
+static const int    LS_M0_MAX_RESULTS = 512; // teto de edificios por varredura
+static const int    LS_M0_DEBOUNCE_N = 3;    // leituras consecutivas p/ acionavel
+static const double LS_M0_LEASE_TTL_HOURS = 24.0; // TTL do lease (horas-de-jogo)
+static const double LS_M0_GRACE_HOURS = 2.0;      // graca antes de FAILED
+static const int    LS_M0_MAX_PER_ROUND = 4;      // teto de propostas por rodada
+static const int    LS_M0_DETAIL_BUDGET = 12;     // linhas de detalhe no log
+
+// Proximidade: pool so inclui workers a ate (raio-da-base * fator) da base
+// -- nao arrancar um esquadrao destacado do outro lado do mapa (achado do
+// 1o run: idosos destacados a ~73km). Fallback fixo se raio vier 0.
+static const double LS_M0_BASE_DIST_FACTOR = 1.5;
+static const double LS_M0_MAX_BASE_DIST = 300.0;  // fallback (metros)
+
+// Marco 2 -- probe de ciclo de vida (prova H1/H2). Edge-loga os sinais
+// isLoadingFromASaveGame/gameResetting/isPaused/allThreadQueuesAreClear
+// ao longo de save/quit/new-game. So leitura.
+static const bool   LS_ENABLE_POC021 = true;
+static const int    LS_M0_LIFECYCLE_HEARTBEAT = 30; // rodadas entre heartbeats
+
 // Arquivo de log (POC-010). Caminho relativo ao diretório de trabalho
 // do processo do jogo (a pasta de instalação do Kenshi).
 static const char* const LS_LOG_FILE = "living_settlements.log";

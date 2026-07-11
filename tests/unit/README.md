@@ -1,7 +1,7 @@
-# tests/unit — pirâmide §16.1 nível 1 (núcleo puro fora do jogo)
+# tests/unit
 
-O domínio (`plugin/src/domain`) não depende de KenshiLib/Ogre/Boost e
-compila em qualquer toolchain.
+Testes do núcleo puro (`plugin/src/domain`). Ele não depende do KenshiLib nem do jogo,
+então compila e roda em qualquer toolchain.
 
 ## Rodar
 
@@ -17,27 +17,24 @@ cl /EHsc /W4 /I..\..\plugin\src ..\..\plugin\src\domain\ReservationManager.cpp t
 
 Saída esperada: `N verificacoes, 0 falhas` + `OK` (exit code 0).
 
-## Cobertura atual (test_reservation.cpp)
+## O que os testes cobrem
 
-| Caso | Requisito/cenário do doc |
-| --- | --- |
-| available básico | REQ-LOG-002 |
-| dois carregadores | TEST-003 |
-| atomicidade do lote + item+capacidade | ADR-015, REQ-LOG-003 |
-| agregação mesmo recurso (falha) | ADR-015 |
-| fusão mesmo dono (contrato de unicidade) | PRINC-004 |
-| dois donos no mesmo recurso | PRINC-004 |
-| guarda de overflow (INT_MAX) | invariante §7.2 |
-| expiração de lease | §6.4 regra 6 |
-| expiração parcial multi-recurso | §6.4 regra 6 |
-| release por dono | §7.2 (estados terminais liberam) |
-| release individual / reaquisição | PRINC-005 |
-| pedidos inválidos | robustez |
-| reconciliação p/ baixo E p/ cima | TEST-007 (parcial) |
-| version monotônica | entidade Reservation §7 |
-| describe (básico + multi-recurso) | GOAL-007 / POC-010 |
-| consultas inexistentes | robustez |
+`test_reservation.cpp` — o gerenciador de reservas:
 
-O contrato de unicidade (fusão por (recurso, dono)), a guarda de
-overflow e o rollback sob exceção no commit são invariantes centrais
-do `ReservationManager` e estão cobertos pelos casos acima.
+- reserva disponível básica e com dois carregadores
+- aquisição atômica do lote (tudo-ou-nada), incluindo item + capacidade juntos
+- agregação e fusão de pedidos do mesmo dono no mesmo recurso
+- dois donos disputando o mesmo recurso
+- guarda de overflow (INT_MAX)
+- expiração de lease, inclusive parcial e multi-recurso
+- liberação por dono e reaquisição individual
+- pedidos inválidos e consultas a recursos inexistentes
+- reconciliação do físico pra cima e pra baixo
+- versão monotônica da reserva
+- descrição legível pro log
+
+O contrato de unicidade (um lease por par recurso/dono), a guarda de overflow e o
+rollback sob exceção no commit são os invariantes centrais do gerenciador, e estão
+cobertos pelos casos acima. Os demais arquivos (`test_workcore`, `test_taskboard`,
+`test_intent`, `test_assignment`) cobrem o resto do núcleo — modelo de dados, quadro de
+tarefas, pool de trabalhadores, debounce, ledger de intenções e a atribuição.

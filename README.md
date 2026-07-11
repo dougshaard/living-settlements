@@ -1,89 +1,91 @@
-# Living Settlements — plugin (Etapa 0: prova técnica)
+# Living Settlements
 
-Mod de IA e automação de assentamentos para **Kenshi**. Camada de coordenação
-de colônia (reservas, logística pull, política de estoque, atribuição global)
-por cima da IA GOAP nativa do jogo, via **RE_Kenshi/KenshiLib**.
+Um mod de automação de colônia para **Kenshi**. A ideia é simples: em vez de você
+ficar microgerenciando quem opera cada máquina, o mod observa o assentamento e ajuda
+o trabalho a fluir sozinho. Ele trabalha *por cima* da IA nativa do jogo, coordenando
+os personagens entre si — reserva de postos pra duas pessoas não caírem na mesma vaga,
+logística puxada, política de estoque e distribuição de tarefas na colônia inteira.
 
-- Este repositório implementa a **Etapa 0** do roadmap: infraestrutura do
-  plugin, POCs de leitura (POC-001..003) e o núcleo de reservas testável,
-  com gate de arquitetura A/B/C.
-- Licença: **GPLv3** (obrigatória — KenshiLib é GPLv3). Ver [LICENSE](LICENSE).
+Roda como plugin nativo, carregado pelo [RE_Kenshi](https://github.com/BFrizzleFoShizzle/RE_Kenshi)
+com os bindings do [KenshiLib](https://github.com/KenshiReclaimer/KenshiLib).
+
+> **Em desenvolvimento.** Por enquanto o mod só *lê* o jogo e raciocina em segundo
+> plano — calcula o que faria, mas ainda não dá nenhuma ordem. A escrita fica desligada
+> até a segurança contra corrupção de save estar comprovada. Veja o estado abaixo.
 
 ## Estado
 
-| Peça | Status |
+| Parte | Como está |
 | --- | --- |
-| Domínio puro (`plugin/src/domain`) — ReservationManager | Implementado; contrato de unicidade, guarda de overflow e rollback sob exceção |
-| Testes unitários (`tests/unit`) | 16 casos, 0 falhas; compilam em qualquer toolchain, sem o jogo |
-| Plugin (entry, version gate c/ allowlist, tick, diagnóstico) | Compila em **v100 / Release \| x64** → `LivingSettlements.dll` (exporta `?startPlugin@@YAXXZ`) |
-| POC-001/002/003 (leitura: personagens+GOAP, base, ameaça/atacante) | Implementadas e validadas em jogo (Kenshi 1.0.65 via RE_Kenshi) |
-| Empacotamento (`plugin/package`) | RE_Kenshi.json + LivingSettlements.mod (46 bytes, byte-idêntico ao formato oficial) |
-| POC-011 (write-path mínimo) | Implementada, **desligada por padrão** (`LsConfig.h`) |
-| POCs restantes | Próximas; a infra (tick/diagnóstico/gate) já as suporta |
+| Núcleo de reservas (código puro, testável) | Pronto — coberto por testes de unidade que rodam em qualquer compilador, sem o jogo |
+| Plugin (carga, checagem de versão, tick na main thread, log) | Compila e roda no jogo (Release / x64) |
+| Leitura da colônia (personagens, cargos, postos, produção, ameaças) | Validada em jogo (Kenshi 1.0.65 via RE_Kenshi) |
+| Coordenação de trabalho (quadro de tarefas, pool, atribuição) | Rodando em modo sombra — calcula as decisões e registra no log, mas não emite |
+| Emissão de ordens (escrita no jogo) | Implementada e desligada por padrão, atrás de um gate de segurança |
 
-## Pré-requisitos de build (RISK-009 — toolchain antigo)
+## Requisitos
 
-1. **Visual Studio 2019+** com o toolset **Visual C++ 2010 (v100)** instalado
-   (o binário do Kenshi exige ABI VS2010; ver README do KenshiLib).
-2. **KenshiLib_Examples_deps** clonado como **irmão** desta pasta
-   (`../KenshiLib_Examples_deps`): contém os includes do KenshiLib, Ogre,
-   MyGUI e o Boost 1.60 pré-compilado.
-3. Kenshi 1.0.65/1.0.68 (Steam ou GOG) + **RE_Kenshi 0.3.4+** instalado.
+- **Visual Studio 2019 ou mais novo**, com o toolset **Visual C++ 2010 (v100)**
+  instalado. O binário do Kenshi usa a ABI do VS2010, então esse toolset é obrigatório.
+- Os dependências do KenshiLib clonadas **ao lado** desta pasta, em
+  `../KenshiLib_Examples_deps` — é o repositório
+  [KenshiLib_Examples_deps](https://github.com/BFrizzleFoShizzle/KenshiLib_Examples_deps),
+  que traz os includes do KenshiLib, do Ogre, do MyGUI e o Boost 1.60 pré-compilado.
+  Rode o `Setup.bat` dele uma vez (ele define as variáveis de ambiente que o projeto usa).
+- **Kenshi 1.0.65 ou 1.0.68** (Steam ou GOG) com o
+  [RE_Kenshi](https://github.com/BFrizzleFoShizzle/RE_Kenshi) 0.3.4 ou mais novo.
 
-## Build
+## Compilar
 
-1. Abrir `plugin/LivingSettlements.sln` no Visual Studio.
-2. Configuração **Release | x64** (Debug não é suportado pelo KenshiLib).
-3. Compilar. A DLL sai em `plugin/x64/Release/LivingSettlements.dll`.
+Abra a solution [plugin/LivingSettlements.sln](plugin/LivingSettlements.sln) no Visual
+Studio, selecione **Release | x64** (o Debug não funciona com o KenshiLib) e compile.
+A DLL sai em `plugin/x64/Release/LivingSettlements.dll`.
 
-### Testes do domínio (qualquer máquina, sem jogo)
+Pra rodar só os testes do núcleo — em qualquer máquina, sem precisar do jogo:
 
-```
+```sh
 cd tests/unit
-g++ -std=c++03 -Wall -I../../plugin/src ../../plugin/src/domain/ReservationManager.cpp test_reservation.cpp -o test_reservation && ./test_reservation
+g++ -std=c++03 -Wall -I../../plugin/src \
+    ../../plugin/src/domain/ReservationManager.cpp test_reservation.cpp \
+    -o test_reservation && ./test_reservation
 ```
 
-(ou `cl /EHsc /W4 /I..\..\plugin\src ...` no MSVC)
+(ou o equivalente com `cl` no prompt do MSVC).
 
-## Instalação no jogo
+## Instalar no jogo
 
-1. Criar no FCS um mod vazio chamado **LivingSettlements** (gera
-   `LivingSettlements.mod` na pasta `mods/LivingSettlements/` do Kenshi).
-2. Copiar para essa pasta: `LivingSettlements.dll` (do build) e
-   `plugin/package/LivingSettlements/RE_Kenshi.json`.
-3. Ativar o mod no launcher do Kenshi. O RE_Kenshi lê o `RE_Kenshi.json`
-   e injeta a DLL.
-4. Diagnóstico: o plugin escreve `living_settlements.log` (POC-010) e
-   espelha no debug log do RE_Kenshi.
+1. No FCS, crie um mod vazio chamado **LivingSettlements**. Isso gera o arquivo `.mod`
+   dentro de `mods/LivingSettlements/`, na pasta do Kenshi.
+2. Copie pra essa mesma pasta a `LivingSettlements.dll` que você compilou e o
+   [RE_Kenshi.json](plugin/package/LivingSettlements/RE_Kenshi.json).
+3. Ative o mod no launcher. O RE_Kenshi lê o `RE_Kenshi.json` e injeta a DLL.
+4. Com o mod rodando, o plugin escreve um `living_settlements.log` na pasta do Kenshi —
+   é onde dá pra acompanhar o que ele está lendo e decidindo.
 
-## Regras de arquitetura (inegociáveis — ver ADRs no doc)
+## Como funciona (as decisões que importam)
 
-- **ADR-014**: todo acesso a estado do jogo acontece no hook da main thread
-  (`GameWorld::mainLoop_GPUSensitiveStuff`). Nunca em worker thread.
-- **ADR-013**: observação por polling/snapshot; não existe event-bus.
-- **ADR-017**: autoridade do jogador é invariante duplo
-  (`canTakePlayerOrdersAtThisTime` + `ActivePlatoon::isPlayer`); nunca
-  sobrescrever `TP_OBEDIENCE`.
-- **ADR-011**: versão de jogo desconhecida ⇒ **fail-closed** (nenhum hook
-  arriscado é instalado; o plugin vira no-op com log).
-- **REQ-PER-001**: nenhum ponteiro do processo é persistido — apenas ids
-  estáveis (`hand::toString`/`InstanceID`).
-- Doc §0.2: **nunca inventar métodos/offsets/capacidades** do FCS/KenshiLib.
+- Todo acesso ao estado do jogo acontece num **único ponto, na main thread** (o hook do
+  loop principal). Nunca em worker thread.
+- Não existe event-bus no jogo, então o mod observa por **polling** e comparação de
+  fotos do mundo entre um tick e outro.
+- A **autoridade do jogador é sagrada**: o mod nunca sobrescreve uma ordem sua, nunca
+  mexe em quem você selecionou e nunca encosta em unidades sob comando direto.
+- Se a versão do jogo não for reconhecida, o plugin **não instala nada** e vira um no-op
+  — só registra o motivo no log.
+- Nenhum ponteiro do jogo é guardado entre frames; a identidade é sempre por id estável.
+- O código **não inventa API do jogo**: tudo que ele chama foi conferido nos headers reais.
 
-## Estrutura (doc §19)
+Organização do código:
 
 ```
-plugin/src/core/        tick host, snapshot, diagnóstico, version gate
-plugin/src/domain/      núcleo puro testável (SEM dependência de KenshiLib)
-plugin/src/adapters/    tradução intenção→TaskType (Etapa 0: stubs)
-plugin/src/pocs/        provas técnicas POC-001..016
-plugin/package/         arquivos de distribuição do mod
-tests/unit/             pirâmide §16.1 nível 1
+plugin/src/core/      tick, diagnóstico, checagem de versão, gate de ciclo de vida
+plugin/src/domain/    o núcleo puro e testável (sem nenhuma dependência do KenshiLib)
+plugin/src/adapters/  a ponte entre o jogo e o núcleo (leitura e escrita)
+plugin/src/pocs/      provas de leitura e de escrita rodadas no jogo
+tests/unit/           testes do núcleo
+plugin/package/       arquivos de distribuição do mod
 ```
 
-## Gate de arquitetura (doc §13.1)
+## Licença
 
-A Etapa 0 termina com um veredito:
-- **Gate A** — atribuição e observação de Jobs seguras → coordenador completo.
-- **Gate B** — parcial → automação limitada + modo assistido.
-- **Gate C** — reprovado → pacote FCS melhorado + diagnóstico.
+GPLv3 — veja o arquivo [LICENSE](LICENSE). O KenshiLib é GPLv3, então o mod também é.

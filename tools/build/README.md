@@ -1,27 +1,31 @@
 # tools/build
 
-## Ambiente (RISK-009 — toolchain antigo, documentado)
+## Ambiente
 
-1. Instalar **Visual Studio 2019 ou mais novo**.
-2. Instalar o **compilador Visual C++ 2010 x64** (toolset `v100`) — cópias
-   do VS2010 estão arquivadas no Wayback Machine (ver README do KenshiLib).
-3. Clonar `https://github.com/BFrizzleFoShizzle/KenshiLib_Examples_deps`
-   (via `git clone` — o repo usa LFS; não baixar o .zip do GitHub).
-4. Rodar `Setup.bat` do deps (eleva para admin): extrai o Boost 1.60 e
-   define as variáveis de ambiente de usuário que o vcxproj consome:
-   - `KENSHILIB_DIR`        → `<deps>/KenshiLib`
-   - `KENSHILIB_DEPS_DIR`   → `<deps>`
-   - `BOOST_INCLUDE_PATH`   → `<deps>/boost_1_60_0`
-   - `BOOST_ROOT`           → `<deps>/boost_1_60_0`
-5. Abrir `plugin/LivingSettlements.sln` e compilar **Release | x64**.
-   (Debug está quebrado no KenshiLib — aviso do README oficial.)
+O toolchain é antigo de propósito: o Kenshi foi compilado com o Visual Studio 2010,
+então o mod precisa da mesma ABI.
 
-Libs linkadas: `KenshiLib.lib` + `OgreMain_x64.lib`
-(`<deps>/KenshiLib/Libraries/`). Boost usa auto-link (`-vc100-` casa com
-o toolset v100).
+1. Instale o **Visual Studio 2019 ou mais novo**.
+2. Instale o **compilador Visual C++ 2010 x64** (toolset `v100`). Cópias arquivadas do
+   VS2010 estão no Wayback Machine — o README do KenshiLib aponta o caminho.
+3. Clone o [KenshiLib_Examples_deps](https://github.com/BFrizzleFoShizzle/KenshiLib_Examples_deps)
+   com `git clone` (o repo usa LFS; não baixe o .zip do GitHub).
+4. Rode o `Setup.bat` dele (pede admin). Ele extrai o Boost 1.60 e define as variáveis
+   de ambiente que o projeto consome:
+   - `KENSHILIB_DIR`      → `<deps>/KenshiLib`
+   - `KENSHILIB_DEPS_DIR` → `<deps>`
+   - `BOOST_INCLUDE_PATH` → `<deps>/boost_1_60_0`
+   - `BOOST_ROOT`         → `<deps>/boost_1_60_0`
+5. Abra a solution e compile em **Release | x64** (o Debug está quebrado no KenshiLib).
 
-## Smoke build
+As libs linkadas são `KenshiLib.lib` e `OgreMain_x64.lib` (em `<deps>/KenshiLib/Libraries/`).
+O Boost usa auto-link — o sufixo `-vc100-` casa com o toolset.
 
-Enquanto não há CI: compilar Release|x64 e conferir que
-`plugin/x64/Release/LivingSettlements.dll` exporta `?startPlugin@@YAXXZ`
-(`dumpbin /exports LivingSettlements.dll`).
+## Sanity check
+
+Enquanto não há CI: compile em Release|x64 e confirme que a
+`plugin/x64/Release/LivingSettlements.dll` exporta `?startPlugin@@YAXXZ`:
+
+```
+dumpbin /exports LivingSettlements.dll
+```
