@@ -73,15 +73,15 @@ EmitResult emitOperate(core::CoordMode mode, const core::WriteFence& fence,
 }
 
 EmitResult emitAddPermajob(core::CoordMode mode, const core::WriteFence& fence,
-                           Character* worker, Building* station, TaskType task,
-                           const Ogre::Vector3& stationPos) {
+                           Character* worker, RootObject* subject, TaskType task,
+                           const Ogre::Vector3& taskPos) {
     if (mode != core::MODE_OBSERVE_AND_ACT) {
         return EMIT_BLOCKED_MODE;
     }
     if (!fence.open) {
         return EMIT_BLOCKED_FENCE;      // save/load/filas em curso
     }
-    if (worker == 0 || station == 0) {
+    if (worker == 0) {
         return EMIT_BLOCKED_NULL;
     }
     if (!authorityOk(worker)) {
@@ -92,9 +92,11 @@ EmitResult emitAddPermajob(core::CoordMode mode, const core::WriteFence& fence,
     // **shift=TRUE** (Porta 1) E TaskData.permaJob!=0 (Porta 2; 87 e capaz). O run #1
     // falhou por usar shift=FALSE -> caiu em jobs@0x70 (transiente). addDontClear=TRUE
     // = NAO limpa (preserva outros jobs; semantica VERIFICADA, era o inverso do que eu
-    // dizia). subject = a estacao (Building* -> RootObject*); location = posicao dela.
+    // dizia). subject = RootObject* (Character.h:416); NULL e VALIDO (Fase A, MED-13:
+    // 0x5C839A test rbx,rbx -> hand nula, identico ao botao Medic nativo) -- por isso
+    // NAO ha null-check de subject aqui; o chamador decide se o verbo exige alvo.
     // E metodo de instancia (this=worker), NAO le PlayerInterface -> independe de selecao.
-    worker->addJob(task, station, true, true, stationPos);
+    worker->addJob(task, subject, true, true, taskPos);
     return EMIT_OK;
 }
 

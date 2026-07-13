@@ -28,6 +28,7 @@ Release/
 tests/unit/test_reservation
 tests/unit/*.o
 tests/unit/*.blog
+tests/unit/*.runout
 tests/unit/build.log
 
 # lixo de editor

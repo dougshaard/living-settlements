@@ -91,6 +91,7 @@
     <ClCompile Include="src\core\TickHost.cpp" />
     <ClCompile Include="src\core\VersionGate.cpp" />
     <ClCompile Include="src\core\LifecycleGate.cpp" />
+    <ClCompile Include="src\core\PocEnv.cpp" />
     <ClCompile Include="src\domain\ReservationManager.cpp" />
     <ClCompile Include="src\domain\WorkModel.cpp" />
     <ClCompile Include="src\domain\OperatorReconciler.cpp" />
@@ -112,6 +113,8 @@
     <ClCompile Include="src\pocs\Poc023_AITaskProbe.cpp" />
     <ClCompile Include="src\pocs\Poc024_JobHook.cpp" />
     <ClCompile Include="src\pocs\Poc025_Organizador.cpp" />
+    <ClCompile Include="src\pocs\Poc026_Medico.cpp" />
+    <ClCompile Include="src\pocs\Poc027_Torre.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\core\Diagnostics.h" />
@@ -119,6 +122,7 @@
     <ClInclude Include="src\core\TickHost.h" />
     <ClInclude Include="src\core\VersionGate.h" />
     <ClInclude Include="src\core\LifecycleGate.h" />
+    <ClInclude Include="src\core\PocEnv.h" />
     <ClInclude Include="src\domain\ReservationManager.h" />
     <ClInclude Include="src\domain\WorkModel.h" />
     <ClInclude Include="src\domain\OperatorReconciler.h" />
@@ -140,6 +144,8 @@
     <ClInclude Include="src\pocs\Poc023_AITaskProbe.h" />
     <ClInclude Include="src\pocs\Poc024_JobHook.h" />
     <ClInclude Include="src\pocs\Poc025_Organizador.h" />
+    <ClInclude Include="src\pocs\Poc026_Medico.h" />
+    <ClInclude Include="src\pocs\Poc027_Torre.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

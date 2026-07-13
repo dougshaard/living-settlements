@@ -11,6 +11,9 @@
 #include "pocs/Poc022_H11.h"
 #include "pocs/Poc023_AITaskProbe.h"
 #include "pocs/Poc025_Organizador.h"
+#include "pocs/Poc026_Medico.h"
+#include "pocs/Poc027_Torre.h"
+#include "core/PocEnv.h"
 
 #include <core/Functions.h>   // KenshiLib::AddHook / GetRealAddress
 #include <kenshi/GameWorld.h> // GameWorld::_NV_mainLoop_GPUSensitiveStuff, isPaused
@@ -102,6 +105,22 @@ void runPocRound(GameWorld* world, float accumulated) {
             pocs::poc025OrganizadorTick(world);
         } catch (...) {
             diag::error("ORGANIZADOR lancou excecao C++ -- abortado");
+        }
+    }
+    // Fase A: POCs por ENV-VAR (default OFF; ver core/PocEnv.h). A checagem
+    // fina (flag + worker + cerca) vive dentro de cada POC.
+    if (pocEnv().medEnabled) {
+        try {
+            pocs::poc026MedicoTick(world);
+        } catch (...) {
+            diag::error("POC-MED-1 lancou excecao C++ -- abortada");
+        }
+    }
+    if (pocEnv().turEnabled) {
+        try {
+            pocs::poc027TorreTick(world);
+        } catch (...) {
+            diag::error("POC-TUR-1 lancou excecao C++ -- abortada");
         }
     }
     if (LS_ENABLE_POC011) {

@@ -255,6 +255,10 @@ bool buildWorkSnapshot(GameWorld* world, bool threadSafe,
         BuildingFunction fn = b->getSpecialFunction();
         sv.function = static_cast<int>(fn);
         sv.workClass = workClassOf(fn);
+        // Classe C++ do predio (Building.h:249; carimbo de ctor @0x198, estavel
+        // -- leitura de config, nao thread-mutada). Fase A: BCTYPE_TURRET
+        // identifica torres no retrato (mapa-papeis sec.2/sec.4 eixo A).
+        sv.buildingClass = static_cast<int>(b->getBuildingClass());
         Ogre::Vector3 p = b->getPosition();
         sv.posX = p.x; sv.posY = p.y; sv.posZ = p.z;
 
@@ -475,6 +479,16 @@ bool buildWorkSnapshot(GameWorld* world, bool threadSafe,
                 w.carryMax = st->getStat(_MaxCarryWeight, false);
             }
             w.carryObserved = true;
+            // Fase A (medico): feridos pre-calculados pelo jogo. MedicalSystem e
+            // POR VALOR em Character (getMedical devolve o membro; MedicalSystem.h
+            // :223-224). Os floats sao escritos em fase THREADED (medicalUpdate/
+            // periodicUpdate) -> SO neste ramo (inv.21), stale-tolerante.
+            MedicalSystem* med = c->getMedical();
+            if (med != 0) {
+                w.firstAidFleshy = med->needsFirstAidScoreTotal_fleshy;
+                w.firstAidRobot = med->needsFirstAidScoreTotal_robot;
+                w.firstAidObserved = true;
+            }
         }
 
         out.workers.push_back(w);

@@ -127,12 +127,20 @@ struct WorkerView {
     double       carryMax;        // getStat(_MaxCarryWeight) [V]; 0 = desconhecido
     bool         carryObserved;   // inv.21: peso derivado do inventario (mutado em
                                   // worker thread) -> so lido no ramo thread-safe
+    // Fase A (papel medico): necessidade de primeiros socorros pre-calculada
+    // pelo jogo (MedicalSystem needsFirstAidScoreTotal_*). > 0 = ferido. Os
+    // floats sao escritos em fase THREADED do update -> so lidos no ramo
+    // thread-safe (inv.21), stale-tolerantes; firstAidObserved diz se foram.
+    double       firstAidFleshy;  // needsFirstAidScoreTotal_fleshy [V]
+    double       firstAidRobot;   // needsFirstAidScoreTotal_robot [V]
+    bool         firstAidObserved;
 
     WorkerView() : isAnimal(false), isIdle(false), hungerBand(HUNGER_OK),
                    canTakeOrders(false), currentPriority(0),
                    underDirectOrder(false), selectedByPlayer(false),
                    posX(0.0), posY(0.0), posZ(0.0), carryNow(0.0), carryMax(0.0),
-                   carryObserved(false) {}
+                   carryObserved(false), firstAidFleshy(0.0), firstAidRobot(0.0),
+                   firstAidObserved(false) {}
 
     // Fracao da capacidade carregada (inv.17). 0 se capacidade desconhecida ou
     // nao observada. So confiavel quando carryObserved (rodada thread-safe).
@@ -188,6 +196,8 @@ struct StockSlotView {
 struct StationView {
     StationId   id;
     int         function;         // BuildingFunction (opaco)
+    int         buildingClass;    // BuildingClassType (opaco; ctor-stamped, estavel).
+                                  // -1 = nao lido. Fase A: identifica TORRES no retrato.
     bool        needsOperating;
     std::vector<WorkerId> operatorsNow; // currentOperators -> ids estaveis
     int         operatorsMax;
@@ -212,7 +222,7 @@ struct StationView {
     int         workClass;        // WorkClass (adapter mapeia de BuildingFunction)
     double      posX, posY, posZ;
 
-    StationView() : function(0), needsOperating(false), operatorsMax(0),
+    StationView() : function(0), buildingClass(-1), needsOperating(false), operatorsMax(0),
                     dontNeedWork(false), productionState(PROD_UNKNOWN),
                     powerOk(true), broken(false), defaultVerb(WV_UNKNOWN),
                     defaultTaskNative(-1), operatorsObserved(false),

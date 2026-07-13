@@ -21,6 +21,7 @@
 
 class Character;
 class Building;
+class RootObject;
 class PlayerInterface;
 namespace Ogre { class Vector3; }
 
@@ -49,12 +50,16 @@ EmitResult emitOperate(core::CoordMode mode, const core::WriteFence& fence,
                        Character* worker, Building* station,
                        const Ogre::Vector3& stationPos);
 
-// POC-H11 (P5-3): STAFFAR = addJob permajob DURAVEL (nao addOrder cru). subject =
-// a estacao; addDontClear=TRUE (ADITIVO -- nunca limpa os cargos do jogador,
-// inv.19). CONFIRM = getPermajobCount sobe e o cargo aponta p/ a estacao [H3/H11].
+// STAFFAR = addJob permajob DURAVEL (nao addOrder cru). subject generalizado
+// p/ RootObject* (Fase A): estacao/torre (Building*), ou NULL -- NULL e VALIDO
+// (vira hand nula; e o que o botao Medic nativo passa) e so faz sentido p/
+// verbos needsTarget=0 (JOB_MEDIC); o CHAMADOR e responsavel por exigir
+// subject!=NULL quando o verbo precisa de alvo (torre). addDontClear=TRUE
+// (ADITIVO -- nunca limpa os cargos do jogador, inv.19). CONFIRM = por efeito:
+// getPermajobCount sobe e getPermajob(i) == verbo esperado [H3/H11].
 EmitResult emitAddPermajob(core::CoordMode mode, const core::WriteFence& fence,
-                           Character* worker, Building* station, TaskType task,
-                           const Ogre::Vector3& stationPos);
+                           Character* worker, RootObject* subject, TaskType task,
+                           const Ogre::Vector3& taskPos);
 
 // DESSTAFFAR CIRURGICO por slot (removePermajob). O chamador garante MAOS VAZIAS
 // (inv.17): nunca arrancar um worker no meio do ciclo de haul.

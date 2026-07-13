@@ -18,6 +18,7 @@
 #include "core/Diagnostics.h"
 #include "core/VersionGate.h"
 #include "core/TickHost.h"
+#include "core/PocEnv.h"
 #include "pocs/Poc024_JobHook.h"
 
 #include <string>
@@ -26,6 +27,10 @@ __declspec(dllexport) void startPlugin() {
     std::string banner = std::string(ls::LS_NAME) + " " + ls::LS_VERSION
         + " (Etapa 0 -- prova tecnica, POC-001/002/010)";
     ls::diag::init(banner);
+
+    // Fase A: registra o que as env-vars de POC dizem (1a coisa a conferir
+    // quando "a flag nao pegou" -- env e lida do processo do jogo).
+    ls::core::logPocEnv();
 
     if (!ls::core::versionGateAllowsHooks()) {
         // Fail-closed: sem hooks; o log registra o motivo (REQ-CORE-008).
