@@ -36,6 +36,9 @@ static StationView makeStation(const StationId& id, bool needsOp, int maxOp,
     s.productionState = prodState; s.powerOk = powerOk; s.broken = broken;
     s.dontNeedWork = dontNeedWork; s.statUsed = statUsed;
     s.workClass = workClass;
+    // Por padrao a estacao foi OBSERVADA nesta rodada (thread-safe); testes de
+    // rodada nao-observada desligam pontualmente (inv.21 / F1).
+    s.operatorsObserved = true; s.prodObserved = true;
     return s;
 }
 
@@ -196,11 +199,90 @@ static void test_pool_proximity() {
     CHECK_EQ(pool.size(), static_cast<std::size_t>(2));
 }
 
+// F1 / inv.21: numa rodada nao observada (thread-adiada), uma mina que SERIA
+// UNMANNED nao pode virar lacuna (operatorsNow vazio + PROD_UNKNOWN parecem
+// "vaga" mas nao sao). Fecha a briga-por-slot.
+static void test_unobserved_suppresses_operator_gap() {
+    WorldSnapshot snap; snap.readGateOpen = true;
+    StationView s = makeStation("m1", true, 2, PROD_NORMAL, true, false, false, 7);
+    s.operatorsObserved = false;      // rodada nao observada
+    s.prodObserved = false;
+    s.productionState = PROD_UNKNOWN;  // o que o adapter deixaria
+    snap.stations.push_back(s);
+
+    std::vector<Gap> gaps;
+    buildGaps(snap, gaps);
+    CHECK(gaps.empty());              // nao observado => nada acionavel
+
+    // Observada de novo: volta a gerar a lacuna.
+    snap.stations[0].operatorsObserved = true;
+    snap.stations[0].prodObserved = true;
+    snap.stations[0].productionState = PROD_NORMAL;
+    buildGaps(snap, gaps);
+    CHECK_EQ(gaps.size(), static_cast<std::size_t>(1));
+    if (!gaps.empty()) CHECK_EQ(static_cast<int>(gaps[0].type),
+                                static_cast<int>(GAP_UNMANNED));
+}
+
+// Secao 9: o verbo da lacuna OPERATOR vem de defaultVerb (getDefaultTask),
+// nao hardcodado. Um forno/refinaria declara outro verbo -> a TaskKey usa ele.
+static void test_default_verb_used() {
+    WorldSnapshot snap; snap.readGateOpen = true;
+    StationView s = makeStation("r1", true, 1, PROD_NORMAL, true, false, false, 7);
+    s.defaultVerb = WV_FILL_MACHINE;
+    snap.stations.push_back(s);
+
+    std::vector<Gap> gaps;
+    buildGaps(snap, gaps);
+    CHECK_EQ(gaps.size(), static_cast<std::size_t>(1));
+    if (!gaps.empty()) {
+        CHECK_EQ(gaps[0].verb, static_cast<int>(WV_FILL_MACHINE));
+        CHECK_EQ(gaps[0].key, makeTaskKey("r1", WV_FILL_MACHINE, "cap:r1"));
+    }
+}
+
+// Parte 5: buildStockGaps agrega needs em lacunas LOGISTICS. Critico e topup
+// dedup (Empty subset NotFull); estacao nao observada nao contribui (inv.21).
+static void test_stock_gaps() {
+    WorldSnapshot snap; snap.readGateOpen = true;
+    StationView p1 = makeStation("p1", false, 0, PROD_NORMAL, true, false, false, -1);
+    p1.needsCritical.push_back(ItemNeed("item:iron", 1));
+    p1.needsTopup.push_back(ItemNeed("item:iron", 1));     // duplica critico
+    p1.needsTopup.push_back(ItemNeed("item:copper", 1));
+    snap.stations.push_back(p1);
+    StationView p2 = makeStation("p2", false, 0, PROD_NORMAL, true, false, false, -1);
+    p2.prodObserved = false;                               // nao observada
+    p2.needsCritical.push_back(ItemNeed("item:fuel", 1));
+    snap.stations.push_back(p2);
+
+    std::vector<Gap> sg;
+    buildStockGaps(snap, sg);
+    CHECK_EQ(countType(sg, GAP_PULL_CRITICAL), 1);         // iron
+    CHECK_EQ(countType(sg, GAP_PULL_TOPUP), 1);            // copper (iron nao duplica)
+    CHECK_EQ(sg.size(), static_cast<std::size_t>(2));      // fuel de p2 nao entra
+    for (std::size_t i = 0; i < sg.size(); ++i) {
+        CHECK_EQ(sg[i].lane, static_cast<int>(LANE_LOGISTICS));
+        CHECK(sg[i].targetPostId == std::string("p1"));
+        if (sg[i].type == GAP_PULL_CRITICAL) CHECK(sg[i].itemKey == std::string("item:iron"));
+        if (sg[i].type == GAP_PULL_TOPUP)    CHECK(sg[i].itemKey == std::string("item:copper"));
+    }
+
+    // Gate de leitura fechado -> nenhuma lacuna de estoque.
+    WorldSnapshot closed;   // readGateOpen = false
+    closed.stations.push_back(p1);
+    std::vector<Gap> sg2;
+    buildStockGaps(closed, sg2);
+    CHECK(sg2.empty());
+}
+
 int main() {
     test_gaps_classification();
     test_read_gate_closed();
     test_worker_pool();
     test_pool_proximity();
+    test_unobserved_suppresses_operator_gap();
+    test_default_verb_used();
+    test_stock_gaps();
 
     std::cout << g_checks << " verificacoes, " << g_fails << " falhas\n";
     if (g_fails == 0) { std::cout << "OK\n"; return 0; }

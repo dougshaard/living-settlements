@@ -70,12 +70,22 @@ void buildGaps(const WorldSnapshot& snap, std::vector<Gap>& out) {
         }
 
         // Lane OPERATOR: precisa operar, tem vaga fisica livre, nao esta
-        // dispensada, producao NORMAL/UNKNOWN com energia, E e um posto de
-        // PRODUCAO (achado do 1o run: nao despachar para treino/gaiola/etc.).
-        if (s.needsOperating && s.hasFreeSlot() && !s.dontNeedWork
+        // dispensada, e um posto de PRODUCAO (achado do 1o run: nao despachar
+        // para treino/gaiola/etc.), com producao comprovadamente NORMAL.
+        // F1 / inv.21 (OBSERVACAO != VACANCIA): so numa rodada OBSERVADA
+        // (thread-safe). Numa rodada nao observada, operatorsNow fica vazio e
+        // productionState=UNKNOWN -> uma mina OCUPADA/STARVED pareceria vaga e
+        // geraria uma lacuna falsa (briga-por-slot). Nao observado => nao emite.
+        // O verbo vem da estacao (getDefaultTask, secao 9), nao hardcodado;
+        // fallback WV_OPERATE_MACHINERY se a estacao nao mapeou o verbo.
+        if (s.operatorsObserved && s.prodObserved
+            && s.productionState == PROD_NORMAL
+            && s.needsOperating && s.hasFreeSlot() && !s.dontNeedWork
             && s.workClass == WC_PRODUCTION) {
+            int verb = (s.defaultVerb != WV_UNKNOWN)
+                       ? s.defaultVerb : WV_OPERATE_MACHINERY;
             WorkerId served = servedByPermajob(snap, s.id);
-            addGap(out, s, GAP_UNMANNED, LANE_OPERATOR, WV_OPERATE_MACHINERY,
+            addGap(out, s, GAP_UNMANNED, LANE_OPERATOR, verb,
                    operatorCapKey(s.id), served);
         }
     }
@@ -87,6 +97,46 @@ void operatorGaps(const std::vector<Gap>& all, std::vector<Gap>& out) {
         // So OPERATOR e ainda nao servida por um permajob (short-circuit).
         if (all[i].lane == LANE_OPERATOR && all[i].servedBy.empty()) {
             out.push_back(all[i]);
+        }
+    }
+}
+
+// Parte 5 (P5-0). ADITIVO: gera lacunas de LOGISTICA a partir do que cada
+// estacao declara precisar. So estacoes OBSERVADAS (inv.21) contribuem --
+// os need-lists sao lidos de consumptionItems, mutado em worker thread.
+void buildStockGaps(const WorldSnapshot& snap, std::vector<Gap>& out) {
+    out.clear();
+    if (!snap.readGateOpen) {
+        return; // fail-closed (secao 5.2)
+    }
+    for (size_t i = 0; i < snap.stations.size(); ++i) {
+        const StationView& s = snap.stations[i];
+        if (!s.prodObserved) {
+            continue; // rodada nao observada: nada acionavel (inv.21)
+        }
+        // Criticos (< MIN): estoque essencialmente vazio deste insumo.
+        for (size_t j = 0; j < s.needsCritical.size(); ++j) {
+            addGap(out, s, GAP_PULL_CRITICAL, LANE_LOGISTICS,
+                   WV_DELIVER_RESOURCES, s.needsCritical[j].itemKey, WorkerId());
+            out.back().itemKey = s.needsCritical[j].itemKey;
+        }
+        // Topup (< ALVO, nao critico): Empty subset NotFull -> desconta os
+        // criticos p/ nao duplicar. A folga MIN..ALVO e a banda morta (inv.16).
+        for (size_t j = 0; j < s.needsTopup.size(); ++j) {
+            const std::string& itk = s.needsTopup[j].itemKey;
+            bool alsoCritical = false;
+            for (size_t k = 0; k < s.needsCritical.size(); ++k) {
+                if (s.needsCritical[k].itemKey == itk) {
+                    alsoCritical = true;
+                    break;
+                }
+            }
+            if (alsoCritical) {
+                continue;
+            }
+            addGap(out, s, GAP_PULL_TOPUP, LANE_LOGISTICS,
+                   WV_DELIVER_RESOURCES, itk, WorkerId());
+            out.back().itemKey = itk;
         }
     }
 }

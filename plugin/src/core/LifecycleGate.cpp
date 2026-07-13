@@ -3,6 +3,8 @@
 #include "core/LifecycleGate.h"
 
 #include <kenshi/GameWorld.h>
+#include <kenshi/SaveManager.h>
+#include <kenshi/SaveFileSystem.h>
 
 namespace ls {
 namespace core {
@@ -31,6 +33,28 @@ bool threadReadsSafe(GameWorld* world) {
     // currentOperators (std::set<hand>) e productionState sao mutados em
     // threadedUpdate (worker thread). Le-los sem quiescencia = UB. [H_THREAD]
     return world != 0 && world->allThreadQueuesAreClear();
+}
+
+WriteFence evaluateWriteFence(GameWorld* world) {
+    WriteFence f;
+    if (world == 0) {
+        return f; // mundo ausente -> fechada (defaults: open=false, -1)
+    }
+    SaveManager* sm = SaveManager::getSingleton();
+    SaveFileSystem* sfs = SaveFileSystem::getSingleton();
+    f.signal = (sm != 0) ? sm->signal : -1;
+    f.saveState = (sfs != 0) ? static_cast<int>(sfs->state) : -1;
+    f.loading = world->isLoadingFromASaveGame();
+    f.resetting = world->gameResetting;
+    f.threadsClear = world->allThreadQueuesAreClear();
+    // Fail-closed: singleton ausente (-1), qualquer save/load/reset, ou filas
+    // sujas => fechada. Aberta so na calmaria total sem operacao de ciclo-de-vida.
+    f.open = (f.signal == 0)
+          && (f.saveState == static_cast<int>(SaveFileSystem::NORMAL))
+          && !f.loading
+          && !f.resetting
+          && f.threadsClear;
+    return f;
 }
 
 const char* modeName(CoordMode m) {

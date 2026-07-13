@@ -99,6 +99,7 @@
     <ClCompile Include="src\domain\Debouncer.cpp" />
     <ClCompile Include="src\domain\IntentLedger.cpp" />
     <ClCompile Include="src\domain\Assignment.cpp" />
+    <ClCompile Include="src\domain\StockPolicy.cpp" />
     <ClCompile Include="src\adapters\SnapshotBuilder.cpp" />
     <ClCompile Include="src\adapters\OrderEmitter.cpp" />
     <ClCompile Include="src\pocs\Poc001_EnumerarPersonagens.cpp" />
@@ -107,6 +108,10 @@
     <ClCompile Include="src\pocs\Poc011_EmitirOrdem.cpp" />
     <ClCompile Include="src\pocs\Poc020_RetratoTrabalho.cpp" />
     <ClCompile Include="src\pocs\Poc021_LifecycleProbe.cpp" />
+    <ClCompile Include="src\pocs\Poc022_H11.cpp" />
+    <ClCompile Include="src\pocs\Poc023_AITaskProbe.cpp" />
+    <ClCompile Include="src\pocs\Poc024_JobHook.cpp" />
+    <ClCompile Include="src\pocs\Poc025_Organizador.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\core\Diagnostics.h" />
@@ -122,6 +127,7 @@
     <ClInclude Include="src\domain\Debouncer.h" />
     <ClInclude Include="src\domain\IntentLedger.h" />
     <ClInclude Include="src\domain\Assignment.h" />
+    <ClInclude Include="src\domain\StockPolicy.h" />
     <ClInclude Include="src\adapters\SnapshotBuilder.h" />
     <ClInclude Include="src\adapters\OrderEmitter.h" />
     <ClInclude Include="src\pocs\Poc001_EnumerarPersonagens.h" />
@@ -130,6 +136,10 @@
     <ClInclude Include="src\pocs\Poc011_EmitirOrdem.h" />
     <ClInclude Include="src\pocs\Poc020_RetratoTrabalho.h" />
     <ClInclude Include="src\pocs\Poc021_LifecycleProbe.h" />
+    <ClInclude Include="src\pocs\Poc022_H11.h" />
+    <ClInclude Include="src\pocs\Poc023_AITaskProbe.h" />
+    <ClInclude Include="src\pocs\Poc024_JobHook.h" />
+    <ClInclude Include="src\pocs\Poc025_Organizador.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

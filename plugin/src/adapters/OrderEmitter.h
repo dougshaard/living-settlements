@@ -17,8 +17,11 @@
 
 #include "core/LifecycleGate.h"
 
+#include <kenshi/Enums.h>   // TaskType (enum -- nao forward-declaravel em C++03)
+
 class Character;
 class Building;
+class PlayerInterface;
 namespace Ogre { class Vector3; }
 
 namespace ls {
@@ -27,18 +30,52 @@ namespace adapters {
 enum EmitResult {
     EMIT_OK = 0,
     EMIT_BLOCKED_MODE,       // fail-closed: modo != OBSERVE_AND_ACT
+    EMIT_BLOCKED_FENCE,      // fail-closed: cerca de escrita fechada (save/load/filas)
     EMIT_BLOCKED_NULL,       // ponteiro do tick invalido
     EMIT_BLOCKED_AUTHORITY   // gate de autoridade composto reprovou
 };
 
+// Toda escrita passa por AQUI e so ocorre com writeGateOpen(mode, fence):
+// modo OBSERVE_AND_ACT E cerca de save/load ABERTA (P5-2, provada in-game).
+// A WriteFence vem de core::evaluateWriteFence, avaliada no MESMO tick.
+
 // Pre-posicionamento (verbo provado por POC-011). CONFIRM = chegada.
-EmitResult emitPreposition(core::CoordMode mode, Character* worker,
-                           const Ogre::Vector3& pos);
+EmitResult emitPreposition(core::CoordMode mode, const core::WriteFence& fence,
+                           Character* worker, const Ogre::Vector3& pos);
 
 // Operar maquina (addOrder OPERATE_MACHINERY + reThink). CONFIRM =
 // worker in currentOperators. [H5] runtime a validar no Marco 3.
-EmitResult emitOperate(core::CoordMode mode, Character* worker,
-                       Building* station, const Ogre::Vector3& stationPos);
+EmitResult emitOperate(core::CoordMode mode, const core::WriteFence& fence,
+                       Character* worker, Building* station,
+                       const Ogre::Vector3& stationPos);
+
+// POC-H11 (P5-3): STAFFAR = addJob permajob DURAVEL (nao addOrder cru). subject =
+// a estacao; addDontClear=TRUE (ADITIVO -- nunca limpa os cargos do jogador,
+// inv.19). CONFIRM = getPermajobCount sobe e o cargo aponta p/ a estacao [H3/H11].
+EmitResult emitAddPermajob(core::CoordMode mode, const core::WriteFence& fence,
+                           Character* worker, Building* station, TaskType task,
+                           const Ogre::Vector3& stationPos);
+
+// DESSTAFFAR CIRURGICO por slot (removePermajob). O chamador garante MAOS VAZIAS
+// (inv.17): nunca arrancar um worker no meio do ciclo de haul.
+EmitResult emitRemovePermajob(core::CoordMode mode, const core::WriteFence& fence,
+                              Character* worker, int slot);
+
+// H11-v2 METODO 0: staffar via a MESMA funcao da UI de jobs. Age nos personagens
+// SELECIONADOS (nao recebe worker). Descoberta (disasm): Character::addJob roteia
+// pelo TaskData BASE do task (permaJob=NOT_A_PERMAJOB p/ 87 -> cai em `jobs`
+// transiente); addJobSelectedCharacters usa um caminho proprio que monta o
+// Tasker-perma. CONFIRM = getPermajobCount do selecionado sobe.
+EmitResult emitAddJobSelected(core::CoordMode mode, const core::WriteFence& fence,
+                              PlayerInterface* pl, TaskType task, Building* station,
+                              const Ogre::Vector3& pos);
+
+// H11-v2 METODO 1 (fallback): "nova tarefa do jogador" -- caminho que a UI usa ao
+// CLICAR num alvo. Age nos SELECIONADOS. targetH=hand(station), destinationIndoors
+// =station, addDontClear=true.
+EmitResult emitNewPlayerTaskSelected(core::CoordMode mode, const core::WriteFence& fence,
+                                     PlayerInterface* pl, TaskType task, Building* station,
+                                     const Ogre::Vector3& pos);
 
 const char* emitResultName(EmitResult r);
 

@@ -14,11 +14,14 @@
 #include "domain/IntentLedger.h"
 #include "domain/Assignment.h"
 #include "domain/ReservationManager.h"
+#include "domain/StockPolicy.h"
 
 #include <sstream>
 #include <vector>
 #include <string>
+#include <map>
 #include <cstddef>
+#include <cmath>
 
 namespace ls {
 namespace pocs {
@@ -33,6 +36,7 @@ using namespace ls::domain;
 ReservationManager g_rm;
 IntentLedger       g_ledger;
 Debouncer          g_debounce(LS_M0_DEBOUNCE_N);
+StockPolicy        g_stock;   // parte 5: estado cross-tick (debounce/subida)
 unsigned long      g_round = 0;
 
 const char* prodName(int p) {
@@ -142,6 +146,42 @@ void poc020Run(GameWorld* world) {
     const std::size_t stableGaps = opGaps.size();
     const std::size_t stablePool = pool.size();
 
+    // Rastreio de um personagem por nome (LS_M0_TRACK_WORKER): cargo, skill,
+    // distancia e o MOTIVO de estar (ou nao) no pool despachavel. Prova ao
+    // vivo que "papel = cargo", nao a acao corrente.
+    if (LS_M0_TRACK_WORKER[0] != '\0') {
+        for (std::size_t i = 0; i < snap.workers.size(); ++i) {
+            const WorkerView& w = snap.workers[i];
+            if (w.name != std::string(LS_M0_TRACK_WORKER)) {
+                continue;
+            }
+            double dist = std::sqrt(distanceSquared(
+                w.posX, w.posY, w.posZ, snap.baseX, snap.baseY, snap.baseZ));
+            const char* motivo;
+            if (w.isAnimal)                      motivo = "animal";
+            else if (!w.isIdle)                  motivo = "ocupado";
+            else if (w.hasPermajob())            motivo = "tem cargo (nao arrancamos)";
+            else if (!w.isAuthorizableTarget())  motivo = "sem autoridade";
+            else if (w.hungerBand >= HUNGER_KO)  motivo = "fome-KO";
+            else if (dist > maxBaseDist)         motivo = "longe da base";
+            else                                 motivo = "DESPACHAVEL";
+            bool est = g_debounce.isStable(std::string("i:") + w.id);
+            std::ostringstream s;
+            s << "  RASTREIO \"" << w.name << "\": " << w.permajobs.size()
+              << " cargo(s), " << (w.isIdle ? "ocioso" : "ocupado")
+              << ", dist=" << static_cast<long>(dist) << "m -> " << motivo
+              << (est ? " (ESTAVEL)" : "");
+            diag::log(s.str());
+            for (std::size_t j = 0; j < w.permajobs.size(); ++j) {
+                std::ostringstream c;
+                c << "    cargo[" << j << "]: verb=" << w.permajobs[j].verb
+                  << " \"" << w.permajobs[j].roleName << "\"";
+                diag::log(c.str());
+            }
+            break;
+        }
+    }
+
     // (6) IntentLedger: confirma/expira e libera reservas terminais.
     std::vector<std::string> freed;
     g_ledger.reconcile(snap, snap.nowHours, LS_M0_GRACE_HOURS, freed);
@@ -168,11 +208,101 @@ void poc020Run(GameWorld* world) {
           << g_ledger.activeCount();
         diag::log(s.str());
     }
+
+    // (9b) Parte 5 (P5-0, SOMBRA): StockPolicy -- demanda por recurso (banda
+    // morta nativa + debounce), subida OBSERVADA do estoque, e as decisoes
+    // would-staff (com gates de peso e servedBy). Emite NADA. "0 propostas de
+    // operador" e correto quando o gargalo e logistica; aqui isso fica VISIVEL,
+    // e o pulsar da demanda e o dado de calibracao da banda morta.
+    if (LS_ENABLE_STOCK) {
+        StockConfig scfg;
+        scfg.critSinksForHungry = LS_RES_CRIT_SINKS_FOR_HUNGRY;
+        scfg.fillMin = LS_RES_FILL_MIN;
+        scfg.fillTarget = LS_RES_FILL_TARGET;
+        scfg.bandMinGap = LS_RES_BAND_MIN_GAP;
+        scfg.demandConsistentTicks = LS_RES_DEMAND_CONSISTENT_TICKS;
+        scfg.staffMaxLoadRatio = LS_RES_STAFF_MAX_LOAD_RATIO;
+        scfg.handsEmptyEps = LS_RES_HANDS_EMPTY_EPS;
+        scfg.maxWouldStaffPerRound = LS_RES_MAX_WOULD_STAFF_PER_ROUND;
+        StockReport rep;
+        g_stock.evaluate(snap, pool0, scfg, rep);
+
+        int prodStations = 0, observed = 0, permajobResolved = 0;
+        for (std::size_t i = 0; i < snap.stations.size(); ++i) {
+            if (snap.stations[i].workClass == WC_PRODUCTION) ++prodStations;
+            if (snap.stations[i].prodObserved) ++observed;
+        }
+        // Quantos permajobs resolveram subject->maquina (valida F8/H3 ao vivo).
+        for (std::size_t i = 0; i < snap.workers.size(); ++i) {
+            const WorkerView& w = snap.workers[i];
+            for (std::size_t j = 0; j < w.permajobs.size(); ++j) {
+                if (!w.permajobs[j].roleMachineId.empty()) ++permajobResolved;
+            }
+        }
+        {
+            std::ostringstream s;
+            s << "  ESTOQUE: " << prodStations << " producao (" << observed
+              << " obs), " << rep.resources.size() << " recursos, "
+              << rep.hungryResources << " HUNGRY, would-staff="
+              << rep.wouldStaff.size() << " [sombra], peso-excl="
+              << rep.weightExcluded << ", permajob->maquina res="
+              << permajobResolved << ", base-stock="
+              << (snap.baseStockObserved ? "lido" : "n/obs") << "("
+              << snap.baseStock.size() << " itens)";
+            diag::log(s.str());
+        }
+        // Detalhe por recurso (mais criticos primeiro): tier debounced, sinks,
+        // produtores, fill, e a SUBIDA observada do estoque (dAmt).
+        int sbudget = LS_RES_DETAIL_BUDGET;
+        for (std::size_t i = 0; i < rep.resources.size() && sbudget > 0; ++i) {
+            const ResourceVerdict& v = rep.resources[i];
+            if (v.criticalSinks == 0 && v.topupSinks == 0) {
+                continue; // so recursos com demanda declarada
+            }
+            --sbudget;
+            // "medido" = a chave existe no estoque-da-base deste tick (deposito
+            // vazio conta como medido 0); ausente = sem sinal de estoque ("?").
+            bool measured = snap.baseStockObserved
+                && snap.baseStock.find(v.itemKey) != snap.baseStock.end();
+            std::ostringstream d;
+            d << "    " << stockTierName(v.tier) << (v.stable ? "" : "?")
+              << " " << v.itemKey
+              << (v.itemName.empty() ? "" : (" (" + v.itemName + ")"))
+              << ": crit=" << v.criticalSinks << " topup=" << v.topupSinks
+              << " prod=" << v.producers << " stock=";
+            if (measured) { d << v.baseStock << " dStock=" << v.riseSinceLast; }
+            else          { d << "? dStock=?"; }
+            d << " fill=" << v.fillRatio;
+            diag::log(d.str());
+        }
+        // Decisoes would-staff (SOMBRA -- nada emitido).
+        int wbudget = LS_M0_DETAIL_BUDGET;
+        for (std::size_t i = 0; i < rep.wouldStaff.size() && wbudget > 0; ++i, --wbudget) {
+            const StaffIntentShadow& si = rep.wouldStaff[i];
+            std::ostringstream d;
+            d << "    would-staff: recurso " << si.itemKey << " mina " << si.mineId
+              << " worker \"" << (si.workerId.empty() ? std::string("--") : si.workerId)
+              << "\" verbo=" << si.verb << " (" << si.reason << ")";
+            diag::log(d.str());
+        }
+    }
+
     int budget = LS_M0_DETAIL_BUDGET;
     for (std::size_t i = 0; i < props.size() && budget > 0; ++i, --budget) {
         std::ostringstream s;
         s << "    proporia: \"" << props[i].worker << "\" -> operar posto "
           << props[i].station;
+        diag::log(s.str());
+    }
+    // Pool despachavel (nomes) -- pra ver quem entra/sai (perto da base,
+    // ocioso, apto, autorizado, sem cargo). Estavel = firme por N leituras.
+    budget = LS_M0_DETAIL_BUDGET;
+    for (std::size_t i = 0; i < pool0.size() && budget > 0; ++i, --budget) {
+        const WorkerView& w = snap.workers[pool0[i]];
+        bool est = g_debounce.isStable(std::string("i:") + w.id);
+        std::ostringstream s;
+        s << "    despachavel: \"" << w.name << "\" "
+          << (est ? "ESTAVEL" : "instavel");
         diag::log(s.str());
     }
     // Alguns postos sem operador, para leitura humana do retrato.
@@ -184,6 +314,8 @@ void poc020Run(GameWorld* world) {
             std::ostringstream ls;
             ls << "    posto sem operador: " << s.id << " fn=" << s.function
                << " prod=" << prodName(s.productionState)
+               << (s.prodObserved ? "" : "(nao-obs)")
+               << " verbo=" << s.defaultVerb << " (task=" << s.defaultTaskNative << ")"
                << " ops=" << s.operatorsNow.size() << "/" << s.operatorsMax;
             diag::log(ls.str());
         }

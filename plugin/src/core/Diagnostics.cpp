@@ -6,6 +6,7 @@
 
 #include <fstream>
 #include <ctime>
+#include <cstdio>   // std::rename / std::remove (rotacao do log)
 
 namespace ls {
 namespace diag {
@@ -44,10 +45,16 @@ void writeFile(const std::string& line) {
 } // namespace
 
 bool init(const std::string& bannerLine) {
-    g_file.open(LS_LOG_FILE, std::ios::out | std::ios::app);
+    // Rotacao por sessao: preserva a sessao ANTERIOR em <log>.prev e comeca um
+    // arquivo LIMPO. O log vivo passa a conter SO a sessao atual -- nao cresce
+    // infinito e nao mistura DLLs/runs (evita fatiar por timestamp na mao).
+    // rename/remove falham em silencio na 1a vez (arquivo inexistente) -- ok.
+    const std::string prev = std::string(LS_LOG_FILE) + ".prev";
+    std::remove(prev.c_str());
+    std::rename(LS_LOG_FILE, prev.c_str());
+    g_file.open(LS_LOG_FILE, std::ios::out | std::ios::trunc);
     g_fileOk = g_file.is_open();
     if (g_fileOk) {
-        g_file << "\n";
         writeFile("==== " + bannerLine + " ====");
         g_file.flush();
     } else {

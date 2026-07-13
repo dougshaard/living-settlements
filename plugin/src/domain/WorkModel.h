@@ -18,6 +18,7 @@
 
 #include <string>
 #include <vector>
+#include <map>
 
 namespace ls {
 namespace domain {
@@ -35,7 +36,13 @@ enum WorkVerb {
     WV_DELIVER_RESOURCES,
     WV_OPERATE_STORAGE,
     WV_REPAIR,
-    WV_BUILD
+    WV_BUILD,
+    // Parte 5: verbos de producao que uma estacao pode declarar via
+    // getDefaultTask() (secao 9). Mapeados por constante nomeada no adapter.
+    WV_FILL_MACHINE,
+    WV_OPERATE_AUTOMATIC,
+    WV_COLLECT_OUTPUT,
+    WV_EMPTY_OUTPUTS
 };
 
 // Estado de producao (mirror de ProductionBuilding::productionState).
@@ -116,11 +123,28 @@ struct WorkerView {
     bool         underDirectOrder;// currentPriority >= TP_OBEDIENCE (adapter resolve)
     bool         selectedByPlayer;// em selectedCharacter OU selectedCharacters
     double       posX, posY, posZ;// posicao (para distancia; nunca despachar longe)
+    double       carryNow;        // getTotalCarryWeight() [V]; peso carregado agora
+    double       carryMax;        // getStat(_MaxCarryWeight) [V]; 0 = desconhecido
+    bool         carryObserved;   // inv.21: peso derivado do inventario (mutado em
+                                  // worker thread) -> so lido no ramo thread-safe
 
     WorkerView() : isAnimal(false), isIdle(false), hungerBand(HUNGER_OK),
                    canTakeOrders(false), currentPriority(0),
                    underDirectOrder(false), selectedByPlayer(false),
-                   posX(0.0), posY(0.0), posZ(0.0) {}
+                   posX(0.0), posY(0.0), posZ(0.0), carryNow(0.0), carryMax(0.0),
+                   carryObserved(false) {}
+
+    // Fracao da capacidade carregada (inv.17). 0 se capacidade desconhecida ou
+    // nao observada. So confiavel quando carryObserved (rodada thread-safe).
+    double loadRatio() const {
+        return (carryObserved && carryMax > 0.0) ? (carryNow / carryMax) : 0.0;
+    }
+    // Peso conhecido E pesado (inv.17): so exclui quem foi observado carregado.
+    bool observedHeavy(double maxRatio) const {
+        return carryObserved && loadRatio() >= maxRatio;
+    }
+    // Maos vazias (elegivel a desstaffar/reatribuir sem largar carga; inv.17).
+    bool handsEmpty(double eps) const { return carryNow <= eps; }
 
     // Nivel para o stat; -1 se desconhecido no snapshot.
     int skillFor(int statId) const;
@@ -148,6 +172,19 @@ struct ItemNeed {
     ItemNeed(const std::string& k, int a) : itemKey(k), amount(a) {}
 };
 
+// Espelho de um input ConsumptionItem [V] (StorageBuilding.h:31): quanto ha e
+// capacidade. Alimenta o fill agregado por recurso (banda morta / subida
+// observada, parte 5 secao 4). Amounts sao mutados em worker thread -> so
+// preencher no ramo thread-safe (prodObserved).
+struct StockSlotView {
+    std::string itemKey;    // "item:<gamedata-stringID>"
+    double      amount;
+    double      maxCapacity;
+    StockSlotView() : amount(0.0), maxCapacity(0.0) {}
+    StockSlotView(const std::string& k, double a, double m)
+        : itemKey(k), amount(a), maxCapacity(m) {}
+};
+
 struct StationView {
     StationId   id;
     int         function;         // BuildingFunction (opaco)
@@ -158,16 +195,29 @@ struct StationView {
     int         productionState;  // ProdState
     bool        powerOk;          // !( isOutOfPower() > 0 )
     bool        broken;           // isBroken()
-    std::vector<ItemNeed> needsCritical; // getResourcesNeededBecauseEmpty
-    std::vector<ItemNeed> needsTopup;    // getResourcesNeededBecauseNotFull
+    // -- Parte 5 (recursos/estoque) --------------------------------------
+    int         defaultVerb;      // WorkVerb via getDefaultTask (secao 9); WV_UNKNOWN se n/a
+    int         defaultTaskNative;// TaskType nativo cru (opaco; log H1-verbo); -1 se n/a
+    bool        operatorsObserved;// inv.21: operatorsNow lido no ramo thread-safe
+    bool        prodObserved;     // inv.21: productionState/estoque lidos thread-safe
+    double      veinRichness;     // getMiningResourceLevel() [H4]; -1 se n/a
+    bool        producesObserved; // producesItemKey lido com sucesso
+    std::vector<ItemNeed> needsCritical; // getResourcesNeededBecauseEmpty (< MIN)
+    std::vector<ItemNeed> needsTopup;    // getResourcesNeededBecauseNotFull (< ALVO)
     std::vector<ItemNeed> surplus;       // getItemsWeWantRidOf
+    std::vector<StockSlotView> inputs;   // ConsumptionItem por input (amount/cap)
+    std::string producesItemKey;  // "item:<gamedata-stringID>"; "" se n/a
+    std::string producesItemName; // nome humano do item produzido (log)
     int         statUsed;         // StatsEnumerated do posto (opaco); -1 se n/a
     int         workClass;        // WorkClass (adapter mapeia de BuildingFunction)
     double      posX, posY, posZ;
 
     StationView() : function(0), needsOperating(false), operatorsMax(0),
                     dontNeedWork(false), productionState(PROD_UNKNOWN),
-                    powerOk(true), broken(false), statUsed(-1),
+                    powerOk(true), broken(false), defaultVerb(WV_UNKNOWN),
+                    defaultTaskNative(-1), operatorsObserved(false),
+                    prodObserved(false), veinRichness(-1.0),
+                    producesObserved(false), statUsed(-1),
                     workClass(WC_OTHER), posX(0.0), posY(0.0), posZ(0.0) {}
 
     bool hasFreeSlot() const {
@@ -182,8 +232,17 @@ struct WorldSnapshot {
     double baseRadius;          // TownBase::getRadius (escala do filtro de proximidade)
     std::vector<WorkerView>  workers;
     std::vector<StationView> stations;
+    // Estoque REAL da base por item: soma de Inventory::getNumItems() sobre as
+    // storages (BF_RESOURCE_STORAGE/BF_GENERAL_STORAGE). E o sinal correto p/ a
+    // SUBIDA-OBSERVADA (parte 5 sec.4.4) -- o ConsumptionItem da maquina e so o
+    // buffer de input (~0), NAO o deposito (achado de calibracao 2026-07-11).
+    // Inventario e mutado em worker thread -> so preenchido no ramo thread-safe;
+    // baseStockObserved diz se foi lido neste tick (senao: sem sinal, nao 0).
+    std::map<std::string, double> baseStock;
+    bool baseStockObserved;
     WorldSnapshot() : nowHours(0.0), readGateOpen(false),
-                      baseX(0.0), baseY(0.0), baseZ(0.0), baseRadius(0.0) {}
+                      baseX(0.0), baseY(0.0), baseZ(0.0), baseRadius(0.0),
+                      baseStockObserved(false) {}
 };
 
 // ---------------------------------------------------------------

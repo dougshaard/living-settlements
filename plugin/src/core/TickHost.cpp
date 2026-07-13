@@ -8,6 +8,9 @@
 #include "pocs/Poc011_EmitirOrdem.h"
 #include "pocs/Poc020_RetratoTrabalho.h"
 #include "pocs/Poc021_LifecycleProbe.h"
+#include "pocs/Poc022_H11.h"
+#include "pocs/Poc023_AITaskProbe.h"
+#include "pocs/Poc025_Organizador.h"
 
 #include <core/Functions.h>   // KenshiLib::AddHook / GetRealAddress
 #include <kenshi/GameWorld.h> // GameWorld::_NV_mainLoop_GPUSensitiveStuff, isPaused
@@ -78,6 +81,27 @@ void runPocRound(GameWorld* world, float accumulated) {
             pocs::poc020Run(world);
         } catch (...) {
             diag::error("POC-020 (Marco 0) lancou excecao C++ -- abortada");
+        }
+    }
+    if (LS_ENABLE_H11) {
+        try {
+            pocs::poc022H11Tick(world);
+        } catch (...) {
+            diag::error("POC-H11 (1a escrita) lancou excecao C++ -- abortada");
+        }
+    }
+    if (LS_ENABLE_AIPROBE) {
+        try {
+            pocs::poc023AiProbeTick(world);
+        } catch (...) {
+            diag::error("AIPROBE (read-only) lancou excecao C++ -- abortada");
+        }
+    }
+    if (LS_ENABLE_ORGANIZER) {
+        try {
+            pocs::poc025OrganizadorTick(world);
+        } catch (...) {
+            diag::error("ORGANIZADOR lancou excecao C++ -- abortado");
         }
     }
     if (LS_ENABLE_POC011) {

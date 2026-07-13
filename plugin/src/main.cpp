@@ -18,6 +18,7 @@
 #include "core/Diagnostics.h"
 #include "core/VersionGate.h"
 #include "core/TickHost.h"
+#include "pocs/Poc024_JobHook.h"
 
 #include <string>
 
@@ -36,6 +37,10 @@ __declspec(dllexport) void startPlugin() {
         // jogo segue intacto.
         return;
     }
+
+    // EXPERIMENTO: hook das funcoes da UI de jobs (atras de LS_ENABLE_JOBHOOK).
+    // Falha aqui NAO derruba o plugin -- so nao capturamos a chamada.
+    ls::pocs::installJobHooks();
 
     ls::diag::milestone("plugin inicializado; rodadas de POC a cada "
                         "intervalo configurado (LsConfig.h)");

@@ -28,6 +28,12 @@ void buildGaps(const WorldSnapshot& snap, std::vector<Gap>& out);
 // lane que o nucleo inicial (Marco 1-3) despacha (secao 5.4).
 void operatorGaps(const std::vector<Gap>& all, std::vector<Gap>& out);
 
+// Parte 5 (P5-0, SOMBRA): agrega as necessidades de estoque das estacoes
+// (needsCritical -> GAP_PULL_CRITICAL, needsTopup nao-critico -> GAP_PULL_TOPUP)
+// em lacunas de LOGISTICA, uma por (estacao, item). ADITIVO -- nao toca a lane
+// OPERATOR. So estacoes com prodObserved (inv.21) contribuem. Puro; nao despacha.
+void buildStockGaps(const WorldSnapshot& snap, std::vector<Gap>& out);
+
 } // namespace domain
 } // namespace ls
 
