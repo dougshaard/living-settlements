@@ -1,9 +1,16 @@
 // Living Settlements -- core/PocEnv.h
 // -----------------------------------------------------------------
-// Flags de POC por VARIAVEL DE AMBIENTE (Fase A). Diferente dos toggles
-// de compilacao do LsConfig.h: a MESMA DLL commitada fica com tudo OFF
-// (env ausente = OFF, fail-closed) e o experimento liga sem rebuild,
-// setando a env ANTES de lancar o jogo.
+// Toggles de POC da Fase A. Diferente dos toggles de compilacao do
+// LsConfig.h: a MESMA DLL commitada fica com tudo OFF (fonte ausente =
+// OFF, fail-closed) e o experimento liga sem rebuild. SO ferramenta de
+// desenvolvimento -- o produto e configurado in-game/por sidecar.
+//
+// FONTE PRIMARIA: arquivo `mods\LivingSettlements\poc.txt` (relativo ao
+// diretorio de trabalho do jogo, o mesmo do living_settlements.log).
+// Linhas KEY=VALUE, `#` comenta, ausente = tudo OFF. Edita com qualquer
+// editor de texto e lanca o jogo NORMAL (Steam) -- sem terminal.
+// Variavel de ambiente com o MESMO nome, se presente e nao-vazia,
+// SOBREPOE a do arquivo (automacao/execucao via shell).
 //
 //   LS_ENABLE_POC_MED=1   liga a POC-MED-1 (papel medico)
 //   LS_ENABLE_POC_TUR=1   liga a POC-TUR-1 (guarda de torre)
@@ -12,9 +19,9 @@
 //   LS_POC_TURRET=<uid>   (opcional) uid exato da torre alvo; ausente = a
 //                         torre mais proxima do worker
 //
-// Leitura UMA vez (lazy, main thread) e cacheada -- env de processo nao
-// muda em voo. logPocEnv() registra o que foi visto (1a coisa a conferir
-// quando "a flag nao pegou").
+// Leitura UMA vez (lazy, main thread) e cacheada -- editar o poc.txt com
+// o jogo aberto NAO tem efeito (reiniciar o jogo). logPocEnv() registra
+// o que foi visto (1a coisa a conferir quando "a flag nao pegou").
 // -----------------------------------------------------------------
 #ifndef LS_CORE_POCENV_H
 #define LS_CORE_POCENV_H
