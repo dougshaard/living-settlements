@@ -23,6 +23,7 @@
 #include "core/PocEnv.h"
 #include "core/Diagnostics.h"
 #include "core/LifecycleGate.h"
+#include "core/LsConfig.h"
 #include "adapters/OrderEmitter.h"
 
 #include <kenshi/GameWorld.h>
@@ -31,11 +32,18 @@
 #include <kenshi/CharBody.h>
 #include <kenshi/MedicalSystem.h>
 #include <kenshi/Inventory.h>
+#include <kenshi/Item.h>
 #include <kenshi/Tasker.h>
+#include <kenshi/Town.h>
+#include <kenshi/InstanceID.h>
+#include <kenshi/Building/Building.h>
+#include <kenshi/Building/UseableStuff.h>
 #include <kenshi/Enums.h>
 #include <kenshi/util/hand.h>
 #include <kenshi/util/lektor.h>
 #include <ogre/OgreVector3.h>
+
+#include <cstdlib>   // free()
 
 #include <cstdint>
 #include <string>
@@ -60,6 +68,7 @@ unsigned long g_lastWaitLog = 0;
 int           g_baseline = -1;
 bool          g_revertDone = false;
 bool          g_kitScanDone = false;
+bool          g_storageScanDone = false;
 
 Character* findCharByName(GameWorld* world, const std::string& name) {
     if (world == 0 || world->player == 0 || name.empty()) {
@@ -203,9 +212,10 @@ const char* kitLabel(int kit) {
     return (kit < 0) ? "(nao-obs)" : (kit > 0 ? "sim" : "NAO");
 }
 
-// One-shot (1a rodada thread-safe): QUEM no roster carrega kit -- guia a
-// escolha do LS_POC_WORKER quando o dono nao sabe quem tem o que. Mesmo cap
-// do censo; so leitura, nomes limitados a MED_KIT_LIST.
+// One-shot (1a rodada thread-safe): QUEM no roster carrega kit E -- o
+// ORACULO -- o NOME exato do item que o MOTOR aceita como kit (o melhor
+// ITEM_FIRSTAID do primeiro portador). Com 57 data-mods, nome de item a
+// olho nu nao e confiavel ("bandagem" sem funcao); o motor e o juiz.
 void kitScanRoster(GameWorld* world) {
     lektor<Character*>& chars = world->player->playerCharacters;
     uint32_t n = chars.size();
@@ -213,6 +223,7 @@ void kitScanRoster(GameWorld* world) {
         n = MED_MAX_CHARS;
     }
     int withKit = 0, listed = 0;
+    std::string oracle;
     std::ostringstream names;
     for (uint32_t i = 0; i < n; ++i) {
         Character* c = chars[i];
@@ -224,6 +235,12 @@ void kitScanRoster(GameWorld* world) {
             continue;
         }
         ++withKit;
+        if (oracle.empty()) {
+            Item* best = inv->getBestItemWithFunction(ITEM_FIRSTAID);
+            if (best != 0) {
+                oracle = best->getName(); // getName herdado (RootObjectBase.h:32)
+            }
+        }
         if (listed < MED_KIT_LIST) {
             if (listed > 0) {
                 names << ", ";
@@ -240,8 +257,73 @@ void kitScanRoster(GameWorld* world) {
             s << " (+" << (withKit - listed) << ")";
         }
     }
-    s << ". Kit e requisito de EXECUCAO (I-25) -- escolha um destes como "
-      << "worker, ou de um kit a quem preferir.";
+    s << ". Kit e requisito de EXECUCAO (I-25).";
+    diag::milestone(s.str());
+    if (!oracle.empty()) {
+        diag::milestone("MED ORACULO: o item que o motor aceita como kit no SEU "
+                        "jogo chama-se \"" + oracle + "\" -- e ESTE item que o "
+                        "medico precisa ter no inventario.");
+    }
+}
+
+// One-shot (thread-safe): DEPOSITOS da base com kit valido (funcao
+// ITEM_FIRSTAID no inventario do predio). Responde "tem kit no storage?"
+// pelo criterio do motor e prepara a lacuna da busca automatica. Caps:
+// LS_M0_MAX_RESULTS predios, 8 linhas de log.
+void kitScanStorages(GameWorld* world, TownBase* town) {
+    Ogre::Vector3 center = town->getPosition();
+    float radius = LS_M0_RADIUS;
+    {
+        float tr = town->getRadius();
+        if (tr > radius) {
+            radius = tr;
+        }
+    }
+    lektor<RootObject*> results;
+    world->getObjectsWithinSphere(results, center, radius, BUILDING,
+                                  LS_M0_MAX_RESULTS, 0);
+    int hits = 0, listed = 0;
+    for (uint32_t i = 0; i < results.size(); ++i) {
+        RootObject* o = results[i];
+        if (o == 0) {
+            continue;
+        }
+        Building* b = static_cast<Building*>(o);
+        if (b->getTown() != town) {
+            continue;
+        }
+        UseableStuff* us = b->getUseableStuff();
+        if (us == 0) {
+            continue;
+        }
+        Inventory* inv = us->getInventory();
+        if (inv == 0 || !inv->hasItemFunction(ITEM_FIRSTAID)) {
+            continue;
+        }
+        ++hits;
+        if (listed < 8) {
+            std::string item;
+            Item* best = inv->getBestItemWithFunction(ITEM_FIRSTAID);
+            if (best != 0) {
+                item = best->getName();
+            }
+            InstanceID* iid = b->getInstanceID();
+            std::ostringstream s;
+            s << "    deposito c/ kit valido: " << (iid != 0 ? iid->uid : std::string("?"))
+              << " (\"" << b->getName() << "\") item=\"" << item << "\"";
+            diag::log(s.str());
+            ++listed;
+        }
+    }
+    if (results.stuff != 0) {
+        free(results.stuff);
+        results.stuff = 0;
+        results.count = 0;
+        results.maxSize = 0;
+    }
+    std::ostringstream s;
+    s << "MED depositos: " << hits << " predio(s) da base com kit VALIDO no "
+      << "inventario (criterio do motor).";
     diag::milestone(s.str());
 }
 
@@ -283,23 +365,31 @@ void poc026MedicoTick(GameWorld* world) {
         g_kitScanDone = true;
     }
 
-    // ---- Worker alvo (LS_POC_WORKER, nome exato; sem fallback de selecao) ----
-    if (env.worker.empty()) {
+    // ---- Worker alvo (LS_POC_MED_WORKER, cai em LS_POC_WORKER; nome exato) ----
+    if (env.medWorker.empty()) {
         if (throttle) {
-            diag::log("MED: LS_POC_WORKER nao definido -- defina o nome EXATO do "
-                      "personagem que vira o medico. Nada a fazer (degraded-safe).");
+            diag::log("MED: LS_POC_MED_WORKER/LS_POC_WORKER nao definido -- defina "
+                      "o nome EXATO do medico. Nada a fazer (degraded-safe).");
             g_lastWaitLog = g_round;
         }
         return;
     }
-    Character* w = findCharByName(world, env.worker);
+    Character* w = findCharByName(world, env.medWorker);
     if (w == 0) {
         if (throttle) {
-            diag::log("MED: worker \"" + env.worker + "\" nao encontrado no roster "
-                      "-- confira o nome (exato, com maiusculas).");
+            diag::log("MED: worker \"" + env.medWorker + "\" nao encontrado no "
+                      "roster -- confira o nome (exato, com maiusculas).");
             g_lastWaitLog = g_round;
         }
         return;
+    }
+    // One-shot: depositos da base com kit valido (oraculo do storage).
+    if (!g_storageScanDone && fence.threadsClear) {
+        TownBase* town = w->getCurrentTownLocation();
+        if (town != 0) {
+            kitScanStorages(world, town);
+            g_storageScanDone = true;
+        }
     }
 
     // ---- Sessao de REVERSAO (LS_POC_REVERT=1): remover em vez de criar ----
@@ -362,7 +452,7 @@ void poc026MedicoTick(GameWorld* world) {
         }
         if (!eligibleTarget(w)) {
             if (throttle) {
-                diag::log("MED ARMADO: worker \"" + env.worker + "\" inelegivel "
+                diag::log("MED ARMADO: worker \"" + env.medWorker + "\" inelegivel "
                           "(morto/KO/sem-ordens) -- aguardando.");
                 g_lastWaitLog = g_round;
             }
@@ -373,7 +463,7 @@ void poc026MedicoTick(GameWorld* world) {
         int existing = findMedicSlot(w);
         if (existing >= 0) {
             std::ostringstream s;
-            s << "MED: \"" << env.worker << "\" JA tem JOB_MEDIC no slot "
+            s << "MED: \"" << env.medWorker << "\" JA tem JOB_MEDIC no slot "
               << existing << " -- nada a emitir (idempotente); observando.";
             diag::milestone(s.str());
             g_baseline = w->getPermajobCount();
@@ -394,7 +484,7 @@ void poc026MedicoTick(GameWorld* world) {
         int slot = findMedicSlot(w);
         {
             std::ostringstream s;
-            s << "MED EMITIU: worker=\"" << env.worker << "\" task=JOB_MEDIC -> "
+            s << "MED EMITIU: worker=\"" << env.medWorker << "\" task=JOB_MEDIC -> "
               << adapters::emitResultName(r) << " cargos:" << g_baseline << "->"
               << after << " slot_58=" << slot
               << " kit=" << kitLabel(workerKit(w, fence.threadsClear));

@@ -404,6 +404,23 @@ void poc027TorreTick(GameWorld* world) {
             }
             return;
         }
+        // Idempotencia entre SESSOES: cargo 234 ja no worker (save anterior)?
+        // Nao re-emitir (fixedTarget=1 dedup por torre protegeria contra o
+        // MESMO alvo, mas "mais proxima" pode variar -> criaria 2a torre).
+        {
+            bool saw146 = false;
+            int existing = findTurretSlot(w, env.turretUid, &saw146);
+            if (existing >= 0) {
+                std::ostringstream s;
+                s << "TUR: \"" << env.worker << "\" JA tem cargo 234 no slot "
+                  << existing << " -- nada a emitir (sessao anterior); observando.";
+                diag::milestone(s.str());
+                g_turretUid = env.turretUid; // "" = observacao generica
+                g_baseline = w->getPermajobCount();
+                g_phase = TUR_OBSERVING;
+                return;
+            }
+        }
         if (target == 0) {
             if (throttle) {
                 diag::log("TUR ARMADO: nenhuma torre-alvo na base do worker "

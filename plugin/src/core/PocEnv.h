@@ -36,6 +36,8 @@ struct PocEnvState {
     bool        turEnabled;   // LS_ENABLE_POC_TUR == "1"
     bool        revert;       // LS_POC_REVERT == "1"
     std::string worker;       // LS_POC_WORKER (nome exato; "" = ausente)
+    std::string medWorker;    // LS_POC_MED_WORKER; vazio = cai em worker.
+                              // Permite MED e TUR juntas com alvos separados.
     std::string turretUid;    // LS_POC_TURRET (uid exato; "" = mais proxima)
     PocEnvState() : medEnabled(false), turEnabled(false), revert(false) {}
 };

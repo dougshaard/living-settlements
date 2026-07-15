@@ -66,6 +66,8 @@ bool readPocFile(PocEnvState& st) {
             st.revert = (v == "1");
         } else if (k == "LS_POC_WORKER") {
             st.worker = v;
+        } else if (k == "LS_POC_MED_WORKER") {
+            st.medWorker = v;
         } else if (k == "LS_POC_TURRET") {
             st.turretUid = v;
         }
@@ -105,9 +107,16 @@ const PocEnvState& pocEnv() {
         if (!v.empty()) {
             g_state.worker = v;
         }
+        v = readEnv("LS_POC_MED_WORKER");
+        if (!v.empty()) {
+            g_state.medWorker = v;
+        }
         v = readEnv("LS_POC_TURRET");
         if (!v.empty()) {
             g_state.turretUid = v;
+        }
+        if (g_state.medWorker.empty()) {
+            g_state.medWorker = g_state.worker; // fallback: um alvo so
         }
         g_loaded = true;
     }
@@ -123,6 +132,8 @@ void logPocEnv() {
       << " REVERT=" << (e.revert ? "ON" : "off")
       << " worker=" << (e.worker.empty() ? std::string("(nenhum)")
                                          : "\"" + e.worker + "\"")
+      << " medWorker=" << (e.medWorker.empty() ? std::string("(nenhum)")
+                                               : "\"" + e.medWorker + "\"")
       << " torre=" << (e.turretUid.empty() ? std::string("(mais proxima)")
                                            : e.turretUid);
     if (e.medEnabled || e.turEnabled) {
