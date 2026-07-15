@@ -30,6 +30,7 @@
 #include <kenshi/Character.h>
 #include <kenshi/CharBody.h>
 #include <kenshi/MedicalSystem.h>
+#include <kenshi/Inventory.h>
 #include <kenshi/Tasker.h>
 #include <kenshi/Enums.h>
 #include <kenshi/util/hand.h>
@@ -50,6 +51,7 @@ static const uint32_t MED_MAX_CHARS       = 512; // roster do jogador
 static const int      MED_MAX_SLOTS       = 64;  // slots de permajob varridos
 static const int      MED_MAX_REMOVE      = 8;   // remocoes na sessao de reversao
 static const int      MED_WOUNDED_DETAIL  = 12;  // linhas de detalhe de feridos/rodada
+static const int      MED_KIT_LIST        = 20;  // nomes listados no scan de kits
 
 enum MedPhase { MED_ARMED = 0, MED_OBSERVING, MED_DONE };
 MedPhase      g_phase = MED_ARMED;
@@ -57,6 +59,7 @@ unsigned long g_round = 0;
 unsigned long g_lastWaitLog = 0;
 int           g_baseline = -1;
 bool          g_revertDone = false;
+bool          g_kitScanDone = false;
 
 Character* findCharByName(GameWorld* world, const std::string& name) {
     if (world == 0 || world->player == 0 || name.empty()) {
@@ -181,6 +184,67 @@ bool eligibleTarget(Character* c) {
         && c->canTakePlayerOrdersAtThisTime();
 }
 
+// Kit de primeiros socorros no inventario do worker: 1/0; -1 = nao observado.
+// Inventario e mutado em worker thread (mesma familia do peso) -> SO com as
+// filas limpas (inv.21). hasItemFunction [V] Inventory.h:195; ITEM_FIRSTAID
+// [V] Enums.h:227. Kit e requisito de EXECUCAO, nao de criacao (I-25).
+int workerKit(Character* w, bool threadsClear) {
+    if (!threadsClear) {
+        return -1;
+    }
+    Inventory* inv = w->getInventory();
+    if (inv == 0) {
+        return -1;
+    }
+    return inv->hasItemFunction(ITEM_FIRSTAID) ? 1 : 0;
+}
+
+const char* kitLabel(int kit) {
+    return (kit < 0) ? "(nao-obs)" : (kit > 0 ? "sim" : "NAO");
+}
+
+// One-shot (1a rodada thread-safe): QUEM no roster carrega kit -- guia a
+// escolha do LS_POC_WORKER quando o dono nao sabe quem tem o que. Mesmo cap
+// do censo; so leitura, nomes limitados a MED_KIT_LIST.
+void kitScanRoster(GameWorld* world) {
+    lektor<Character*>& chars = world->player->playerCharacters;
+    uint32_t n = chars.size();
+    if (n > MED_MAX_CHARS) {
+        n = MED_MAX_CHARS;
+    }
+    int withKit = 0, listed = 0;
+    std::ostringstream names;
+    for (uint32_t i = 0; i < n; ++i) {
+        Character* c = chars[i];
+        if (c == 0 || c->isAnimal() != 0) {
+            continue;
+        }
+        Inventory* inv = c->getInventory();
+        if (inv == 0 || !inv->hasItemFunction(ITEM_FIRSTAID)) {
+            continue;
+        }
+        ++withKit;
+        if (listed < MED_KIT_LIST) {
+            if (listed > 0) {
+                names << ", ";
+            }
+            names << "\"" << c->getName() << "\"";
+            ++listed;
+        }
+    }
+    std::ostringstream s;
+    s << "MED kits no roster: " << withKit << " com kit de primeiros socorros";
+    if (withKit > 0) {
+        s << ": " << names.str();
+        if (withKit > listed) {
+            s << " (+" << (withKit - listed) << ")";
+        }
+    }
+    s << ". Kit e requisito de EXECUCAO (I-25) -- escolha um destes como "
+      << "worker, ou de um kit a quem preferir.";
+    diag::milestone(s.str());
+}
+
 } // namespace
 
 void poc026MedicoTick(GameWorld* world) {
@@ -212,6 +276,11 @@ void poc026MedicoTick(GameWorld* world) {
             s << wounded;
         }
         diag::log(s.str());
+    }
+    // One-shot: quem tem kit (orienta a escolha/checagem do worker).
+    if (!g_kitScanDone && fence.threadsClear) {
+        kitScanRoster(world);
+        g_kitScanDone = true;
     }
 
     // ---- Worker alvo (LS_POC_WORKER, nome exato; sem fallback de selecao) ----
@@ -327,7 +396,8 @@ void poc026MedicoTick(GameWorld* world) {
             std::ostringstream s;
             s << "MED EMITIU: worker=\"" << env.worker << "\" task=JOB_MEDIC -> "
               << adapters::emitResultName(r) << " cargos:" << g_baseline << "->"
-              << after << " slot_58=" << slot;
+              << after << " slot_58=" << slot
+              << " kit=" << kitLabel(workerKit(w, fence.threadsClear));
             diag::milestone(s.str());
         }
         dumpPermajobs(w, "pos-emit");
@@ -354,6 +424,7 @@ void poc026MedicoTick(GameWorld* world) {
         s << "MED OBS: cargos=" << w->getPermajobCount() << " (baseline "
           << g_baseline << ") slot_58=" << slot
           << " acao_key=" << currentActionKey(w)
+          << " kit=" << kitLabel(workerKit(w, fence.threadsClear))
           << (slot >= 0 ? "" : " | ATENCAO: JOB_MEDIC sumiu da lista!");
         diag::log(s.str());
         return;
