@@ -54,6 +54,11 @@ struct PocEnvState {
 // Snapshot cacheado do ambiente (primeira chamada le; depois so retorna).
 const PocEnvState& pocEnv();
 
+// Estado MUTAVEL em runtime (GUI/painel de controle; main thread only).
+// As POCs releem pocEnv() a cada rodada -> mudar aqui e controle AO VIVO.
+// poc.txt/env continuam sendo apenas o DEFAULT de boot.
+PocEnvState& pocEnvMutable();
+
 // Loga (diag) o estado visto -- chamar uma vez no startPlugin.
 void logPocEnv();
 

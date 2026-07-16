@@ -19,6 +19,7 @@
 #include "core/VersionGate.h"
 #include "core/TickHost.h"
 #include "core/PocEnv.h"
+#include "ui/ControlPanel.h"
 #include "pocs/Poc024_JobHook.h"
 
 #include <string>
@@ -46,6 +47,10 @@ __declspec(dllexport) void startPlugin() {
     // EXPERIMENTO: hook das funcoes da UI de jobs (atras de LS_ENABLE_JOBHOOK).
     // Falha aqui NAO derruba o plugin -- so nao capturamos a chamada.
     ls::pocs::installJobHooks();
+
+    // GUI v1 (diretriz 14): painel de controle com toggles ao vivo. Falha
+    // nao derruba o plugin (poc.txt segue valendo como default de boot).
+    ls::ui::installControlPanel();
 
     ls::diag::milestone("plugin inicializado; rodadas de POC a cada "
                         "intervalo configurado (LsConfig.h)");

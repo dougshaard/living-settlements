@@ -139,6 +139,11 @@ const PocEnvState& pocEnv() {
     return g_state;
 }
 
+PocEnvState& pocEnvMutable() {
+    pocEnv(); // garante o carregamento do default (arquivo+env) antes de mutar
+    return g_state;
+}
+
 void logPocEnv() {
     const PocEnvState& e = pocEnv();
     std::ostringstream s;
