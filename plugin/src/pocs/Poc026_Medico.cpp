@@ -33,6 +33,7 @@
 #include <kenshi/MedicalSystem.h>
 #include <kenshi/Inventory.h>
 #include <kenshi/Item.h>
+#include <kenshi/GameData.h>
 #include <kenshi/Tasker.h>
 #include <kenshi/Town.h>
 #include <kenshi/InstanceID.h>
@@ -212,6 +213,22 @@ const char* kitLabel(int kit) {
     return (kit < 0) ? "(nao-obs)" : (kit > 0 ? "sim" : "NAO");
 }
 
+// PROCEDENCIA de um item: stringID do GameData ("1866-gamedata.base") -- o
+// sufixo e o ARQUIVO DE ORIGEM (vanilla = gamedata.base; mod = NomeDoMod.mod).
+// data e membro publico da raiz (RootObjectBase.h:76); stringID GameData.h:92.
+// Base da camada de compatibilidade com mods: classificar por FUNCAO e
+// rotular por ORIGEM, nunca por nome de item.
+std::string itemProvenance(Item* it) {
+    if (it == 0) {
+        return std::string();
+    }
+    GameData* gd = it->data;
+    if (gd == 0) {
+        return std::string();
+    }
+    return gd->stringID;
+}
+
 // One-shot (1a rodada thread-safe): QUEM no roster carrega kit E -- o
 // ORACULO -- o NOME exato do item que o MOTOR aceita como kit (o melhor
 // ITEM_FIRSTAID do primeiro portador). Com 57 data-mods, nome de item a
@@ -223,7 +240,7 @@ void kitScanRoster(GameWorld* world) {
         n = MED_MAX_CHARS;
     }
     int withKit = 0, listed = 0;
-    std::string oracle;
+    std::string oracle, oracleProv;
     std::ostringstream names;
     for (uint32_t i = 0; i < n; ++i) {
         Character* c = chars[i];
@@ -239,6 +256,7 @@ void kitScanRoster(GameWorld* world) {
             Item* best = inv->getBestItemWithFunction(ITEM_FIRSTAID);
             if (best != 0) {
                 oracle = best->getName(); // getName herdado (RootObjectBase.h:32)
+                oracleProv = itemProvenance(best);
             }
         }
         if (listed < MED_KIT_LIST) {
@@ -261,8 +279,9 @@ void kitScanRoster(GameWorld* world) {
     diag::milestone(s.str());
     if (!oracle.empty()) {
         diag::milestone("MED ORACULO: o item que o motor aceita como kit no SEU "
-                        "jogo chama-se \"" + oracle + "\" -- e ESTE item que o "
-                        "medico precisa ter no inventario.");
+                        "jogo chama-se \"" + oracle + "\" [" + oracleProv + "] "
+                        "-- e ESTE item que o medico precisa ter no inventario "
+                        "(sufixo do id = mod de origem).");
     }
 }
 
@@ -302,15 +321,16 @@ void kitScanStorages(GameWorld* world, TownBase* town) {
         }
         ++hits;
         if (listed < 8) {
-            std::string item;
+            std::string item, prov;
             Item* best = inv->getBestItemWithFunction(ITEM_FIRSTAID);
             if (best != 0) {
                 item = best->getName();
+                prov = itemProvenance(best);
             }
             InstanceID* iid = b->getInstanceID();
             std::ostringstream s;
             s << "    deposito c/ kit valido: " << (iid != 0 ? iid->uid : std::string("?"))
-              << " (\"" << b->getName() << "\") item=\"" << item << "\"";
+              << " (\"" << b->getName() << "\") item=\"" << item << "\" [" << prov << "]";
             diag::log(s.str());
             ++listed;
         }

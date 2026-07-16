@@ -17,6 +17,7 @@
 
 #include <core/Functions.h>   // KenshiLib::AddHook / GetRealAddress
 #include <kenshi/GameWorld.h> // GameWorld::_NV_mainLoop_GPUSensitiveStuff, isPaused
+#include <kenshi/ModInfo.h>   // censo de mods ativos (compat por origem)
 
 #include <sstream>
 
@@ -41,6 +42,36 @@ unsigned long g_pocRound = 0;
 // observado — o timestamp [HH:MM:SS] do log valida ou refuta a
 // hipotese de unidade no primeiro run.
 static const unsigned long LS_MIN_TICKS_BETWEEN_ROUNDS = 60;
+
+// Censo de MODS ativos, one-shot por sessao (Fase A; base da camada de
+// compatibilidade): nome + arquivo de cada mod carregado. O arquivo casa com
+// o sufixo do stringID de todo GameData -> da a ORIGEM de qualquer item/
+// predio ("de qual mod veio"). Leitura de config (lista montada no boot do
+// jogo, nao mutada em worker thread). Cap duro de linhas.
+bool g_modCensusDone = false;
+
+void logModCensus(GameWorld* world) {
+    lektor<ModInfo*>& mods = world->activeMods;
+    uint32_t n = mods.size();
+    std::ostringstream h;
+    h << "MODS ativos: " << n << " (arquivo do mod = sufixo do stringID de "
+      << "todo item/predio; e a chave de compatibilidade por origem)";
+    diag::milestone(h.str());
+    if (n > 128) {
+        n = 128;
+    }
+    for (uint32_t i = 0; i < n; ++i) {
+        ModInfo* m = mods[i];
+        if (m == 0) {
+            continue;
+        }
+        std::ostringstream s;
+        s << "    mod[" << i << "] \"" << m->name << "\" arquivo=" << m->file
+          << (m->isBaseMod ? " [base]" : "")
+          << (m->isWorkshop ? " [workshop]" : "");
+        diag::log(s.str());
+    }
+}
 
 void runPocRound(GameWorld* world, float accumulated) {
     ++g_pocRound;
@@ -107,8 +138,16 @@ void runPocRound(GameWorld* world, float accumulated) {
             diag::error("ORGANIZADOR lancou excecao C++ -- abortado");
         }
     }
-    // Fase A: POCs por ENV-VAR (default OFF; ver core/PocEnv.h). A checagem
+    // Fase A: POCs por toggles (default OFF; ver core/PocEnv.h). A checagem
     // fina (flag + worker + cerca) vive dentro de cada POC.
+    if (!g_modCensusDone && (pocEnv().medEnabled || pocEnv().turEnabled)) {
+        try {
+            logModCensus(world);
+        } catch (...) {
+            diag::error("censo de mods lancou excecao C++ -- ignorado");
+        }
+        g_modCensusDone = true;
+    }
     if (pocEnv().medEnabled) {
         try {
             pocs::poc026MedicoTick(world);

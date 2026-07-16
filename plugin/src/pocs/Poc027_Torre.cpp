@@ -502,7 +502,11 @@ void poc027TorreTick(GameWorld* world) {
         int slot234 = findTurretSlot(w, g_turretUid, &saw146);
         bool inOps = false;
         bool opsObserved = false;
-        if (fence.threadsClear && target != 0 && uidOf(target) == g_turretUid) {
+        // g_turretUid vazio (emissao em torre ainda-sem-uid / cargo herdado de
+        // sessao anterior): observar ops na torre corrente do lookup (mais
+        // proxima) em vez de nunca observar.
+        if (fence.threadsClear && target != 0
+            && (g_turretUid.empty() || uidOf(target) == g_turretUid)) {
             UseableStuff* us = target->getUseableStuff();
             if (us != 0) {
                 inOps = setHasChar(us->currentOperators, w);
