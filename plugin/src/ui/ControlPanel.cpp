@@ -30,6 +30,7 @@ MyGUI::Button* g_btnHaul = 0;
 MyGUI::Button* g_btnHaulOnce = 0;
 MyGUI::Button* g_btnMed = 0;
 MyGUI::Button* g_btnTur = 0;
+MyGUI::Button* g_btnWipe = 0;
 
 std::string label(const char* name, bool on) {
     return std::string(name) + ": " + (on ? "LIGADO" : "desligado");
@@ -55,6 +56,10 @@ void refreshCaptions() {
     }
     if (g_btnTur != 0) {
         g_btnTur->setCaption(label("Torre (obs)", e.turEnabled));
+    }
+    if (g_btnWipe != 0) {
+        g_btnWipe->setCaption(e.clearJobs ? "Limpar cargos: LIMPANDO..."
+                                          : "Limpar todos os cargos");
     }
 }
 
@@ -86,6 +91,11 @@ void onToggle(MyGUI::WidgetPtr sender) {
         e.turEnabled = !e.turEnabled;
         what = "Torre (obs)";
         now = e.turEnabled;
+    } else if (sender == g_btnWipe) {
+        e.clearJobs = true; // a limpeza roda no proximo tick, atras da cerca,
+                            // e desarma sozinha ao concluir
+        what = "Limpar todos os cargos";
+        now = true;
     }
     refreshCaptions();
     diag::milestone(std::string("PAINEL: ") + what + " -> "
@@ -95,7 +105,7 @@ void onToggle(MyGUI::WidgetPtr sender) {
 
 MyGUI::Button* makeToggle(MyGUI::Widget* parent, float y, const char* name) {
     MyGUI::Button* b = parent->createWidgetReal<MyGUI::Button>(
-        "Kenshi_Button1", 0.05f, y, 0.90f, 0.14f, MyGUI::Align::Default, name);
+        "Kenshi_Button1", 0.05f, y, 0.90f, 0.12f, MyGUI::Align::Default, name);
     b->eventMouseButtonClick += MyGUI::newDelegate(onToggle);
     return b;
 }
@@ -117,11 +127,12 @@ TitleScreen* titleHook(TitleScreen* thisptr) {
     w->setCaption("Living Settlements");
     MyGUI::Widget* c = w->getClientWidget();
     g_btnOrch     = makeToggle(c, 0.02f, "LSBtnOrch");
-    g_btnGarrison = makeToggle(c, 0.18f, "LSBtnGarrison");
-    g_btnHaul     = makeToggle(c, 0.34f, "LSBtnHaul");
-    g_btnHaulOnce = makeToggle(c, 0.50f, "LSBtnHaulOnce");
-    g_btnMed      = makeToggle(c, 0.66f, "LSBtnMed");
-    g_btnTur      = makeToggle(c, 0.82f, "LSBtnTur");
+    g_btnGarrison = makeToggle(c, 0.16f, "LSBtnGarrison");
+    g_btnHaul     = makeToggle(c, 0.30f, "LSBtnHaul");
+    g_btnHaulOnce = makeToggle(c, 0.44f, "LSBtnHaulOnce");
+    g_btnMed      = makeToggle(c, 0.58f, "LSBtnMed");
+    g_btnTur      = makeToggle(c, 0.72f, "LSBtnTur");
+    g_btnWipe     = makeToggle(c, 0.86f, "LSBtnWipe");
     refreshCaptions();
     diag::milestone("PAINEL de controle criado (janela 'Living Settlements'; "
                     "toggles ao vivo -- poc.txt e so o default de boot)");

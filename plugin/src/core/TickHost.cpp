@@ -15,6 +15,7 @@
 #include "pocs/Poc027_Torre.h"
 #include "pocs/Poc028_Guarnicao.h"
 #include "pocs/Poc029_Carregador.h"
+#include "pocs/Poc030_LimparCargos.h"
 #include "core/PocEnv.h"
 
 #include <core/Functions.h>   // KenshiLib::AddHook / GetRealAddress
@@ -131,6 +132,15 @@ void runPocRound(GameWorld* world, float accumulated) {
             pocs::poc023AiProbeTick(world);
         } catch (...) {
             diag::error("AIPROBE (read-only) lancou excecao C++ -- abortada");
+        }
+    }
+    // Limpeza de cargos ANTES do organizador/guarnicao: a rodada que zera o
+    // roster ja e a rodada que comeca a recompor a cidade (1 clique).
+    if (pocEnv().clearJobs) {
+        try {
+            pocs::poc030LimparCargosTick(world);
+        } catch (...) {
+            diag::error("LIMPEZA de cargos lancou excecao C++ -- abortada");
         }
     }
     if (LS_ENABLE_ORGANIZER || pocEnv().orchestrator) {

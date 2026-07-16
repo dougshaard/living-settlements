@@ -41,6 +41,10 @@ struct PocEnvState {
                               // laco automatico de transporte por demanda
     bool        haulOnce;     // gatilho do painel (dir.14): 1 ciclo de haul
                               // mesmo com o laco desligado; a POC consome
+    bool        clearJobs;    // gatilho do painel: limpar TODOS os permajobs
+                              // do roster (o orquestrador recompoe). Runtime-
+                              // only DE PROPOSITO: acao destrutiva nunca vem
+                              // de arquivo (dispararia em todo boot)
     bool        revert;       // LS_POC_REVERT == "1"
     std::string worker;       // LS_POC_WORKER (nome exato; "" = ausente)
     std::string medWorker;    // LS_POC_MED_WORKER; vazio = cai em worker.
@@ -53,7 +57,7 @@ struct PocEnvState {
     std::string garrisonExclude; // LS_GARRISON_EXCLUDE=uid1,uid2
     PocEnvState() : medEnabled(false), turEnabled(false), garrison(false),
                     orchestrator(false), haul(false), haulOnce(false),
-                    revert(false) {}
+                    clearJobs(false), revert(false) {}
 };
 
 // Snapshot cacheado do ambiente (primeira chamada le; depois so retorna).
