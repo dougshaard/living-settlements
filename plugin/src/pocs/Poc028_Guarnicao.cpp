@@ -81,6 +81,41 @@ std::string uidOf(Building* b) {
     return (iid != 0) ? iid->uid : std::string();
 }
 
+// uid presente numa lista CSV (LS_GARRISON_ONLY/EXCLUDE)? Comparacao por
+// item EXATO (delimitado por virgula), nao substring.
+bool csvHas(const std::string& csv, const std::string& uid) {
+    if (csv.empty() || uid.empty()) {
+        return false;
+    }
+    std::string::size_type pos = 0;
+    while (pos <= csv.size()) {
+        std::string::size_type end = csv.find(',', pos);
+        if (end == std::string::npos) {
+            end = csv.size();
+        }
+        // trim de espacos do item
+        std::string::size_type a = pos, b = end;
+        while (a < b && csv[a] == ' ') ++a;
+        while (b > a && csv[b - 1] == ' ') --b;
+        if (b - a == uid.size() && csv.compare(a, b - a, uid) == 0) {
+            return true;
+        }
+        pos = end + 1;
+    }
+    return false;
+}
+
+// DECLARACAO DO JOGADOR (diretriz 11): torre e posto de guarnicao?
+// ONLY presente = whitelist (so as declaradas); senao todas MENOS EXCLUDE.
+// (Ponte por arquivo ate o painel in-game da Fase B.)
+bool isDeclaredPost(const std::string& uid) {
+    const core::PocEnvState& e = core::pocEnv();
+    if (!e.garrisonOnly.empty()) {
+        return csvHas(e.garrisonOnly, uid);
+    }
+    return !csvHas(e.garrisonExclude, uid);
+}
+
 // O char ja tem cargo de torre apontando p/ ESTA torre? (chave 234 + subject)
 bool hasTurretCargoFor(Character* c, const std::string& turretUid) {
     int n = c->getPermajobCount();
@@ -228,6 +263,9 @@ void poc028GuarnicaoTick(GameWorld* world) {
         ts.uid = uidOf(b);
         if (ts.uid.empty()) {
             continue; // em obra: sem uid, sem guarnicao ainda
+        }
+        if (!isDeclaredPost(ts.uid)) {
+            continue; // o jogador declarou esta torre FORA da guarnicao
         }
         Ogre::Vector3 bp = b->getPosition();
         double dx = bp.x - center.x, dy = bp.y - center.y, dz = bp.z - center.z;

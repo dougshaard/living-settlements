@@ -64,6 +64,10 @@ bool readPocFile(PocEnvState& st) {
             st.turEnabled = (v == "1");
         } else if (k == "LS_GARRISON") {
             st.garrison = (v == "1");
+        } else if (k == "LS_GARRISON_ONLY") {
+            st.garrisonOnly = v;
+        } else if (k == "LS_GARRISON_EXCLUDE") {
+            st.garrisonExclude = v;
         } else if (k == "LS_ORCHESTRATOR") {
             st.orchestrator = (v == "1");
         } else if (k == "LS_POC_REVERT") {
@@ -118,6 +122,14 @@ const PocEnvState& pocEnv() {
         v = readEnv("LS_POC_TURRET");
         if (!v.empty()) {
             g_state.turretUid = v;
+        }
+        v = readEnv("LS_GARRISON_ONLY");
+        if (!v.empty()) {
+            g_state.garrisonOnly = v;
+        }
+        v = readEnv("LS_GARRISON_EXCLUDE");
+        if (!v.empty()) {
+            g_state.garrisonExclude = v;
         }
         if (g_state.medWorker.empty()) {
             g_state.medWorker = g_state.worker; // fallback: um alvo so

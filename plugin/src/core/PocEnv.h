@@ -42,7 +42,13 @@ struct PocEnvState {
     std::string medWorker;    // LS_POC_MED_WORKER; vazio = cai em worker.
                               // Permite MED e TUR juntas com alvos separados.
     std::string turretUid;    // LS_POC_TURRET (uid exato; "" = mais proxima)
-    PocEnvState() : medEnabled(false), turEnabled(false), revert(false) {}
+    // Ajuste manual da guarnicao (decisao 9: automatico + ajuste; diretriz 11:
+    // a declaracao e do JOGADOR). CSV de uids (do log). ONLY presente = so
+    // essas torres sao postos; senao todas, MENOS as de EXCLUDE.
+    std::string garrisonOnly;    // LS_GARRISON_ONLY=uid1,uid2
+    std::string garrisonExclude; // LS_GARRISON_EXCLUDE=uid1,uid2
+    PocEnvState() : medEnabled(false), turEnabled(false), garrison(false),
+                    orchestrator(false), revert(false) {}
 };
 
 // Snapshot cacheado do ambiente (primeira chamada le; depois so retorna).
