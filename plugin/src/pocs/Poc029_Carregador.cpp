@@ -72,6 +72,11 @@ static const double   HAUL_MAX_LOAD_RATIO   = 0.80; // nunca lotar o inventario 
 static const float    HAUL_ARRIVE_M         = 6.0f; // chegada = a menos de 6m do predio
                                                     // (POC-011 confirmou <2m ao ar livre;
                                                     // predio tem raio -> folga)
+static const float    HAUL_MAX_HAULER_DIST_M = 300.0f; // carregador tem que estar PERTO
+                                                    // da fonte (evidencia 16/07: o "mais
+                                                    // perto" era um viajante a ~900m cujo
+                                                    // squad sobrepunha o destino -> perna
+                                                    // futil; viajante nao e carregador)
 static const unsigned long HAUL_LEG_TIMEOUT   = 18; // rodadas (~3min) por perna
 static const unsigned long HAUL_REEMIT_EVERY  = 6;  // re-emitir destino a cada N rodadas
 static const int           HAUL_MAX_REEMITS   = 3;
@@ -434,13 +439,43 @@ struct SourceCand {
     std::string uid, name;
     float       x, y, z;
     int         count;
+    bool        surplus; // a fonte DECLARA excedente do item (getItemsWeWantRidOf)
 };
 
 struct DestCand {
     std::string uid, name;
     float       x, y, z;
     double      d2Demand;
+    bool        holds;   // o deposito JA guarda este item (tipo certo de armazem)
 };
+
+// A estacao declara o item como excedente? (getItemsWeWantRidOf; padrao de
+// leitura+free do SnapshotBuilder). Fonte com excedente e prioridade: tirar
+// dali AJUDA o produtor; tirar do buffer de outro consumidor e ultimo caso
+// (evidencia 16/07: v1 drenou a agua da fazenda de cactos p/ a de trigo).
+bool declaresSurplus(Building* b, const std::string& sid) {
+    ProductionBuilding* pb = b->getProductionBuilding();
+    if (pb == 0) {
+        return false;
+    }
+    bool found = false;
+    lektor<GameData*> rid;
+    pb->getItemsWeWantRidOf(rid, false);
+    for (uint32_t i = 0; i < rid.size(); ++i) {
+        GameData* gd = rid[i];
+        if (gd != 0 && sid == gd->stringID) {
+            found = true;
+            break;
+        }
+    }
+    if (rid.stuff != 0) {
+        free(rid.stuff);
+        rid.stuff = 0;
+        rid.count = 0;
+        rid.maxSize = 0;
+    }
+    return found;
+}
 
 bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
               core::CoordMode mode, const core::WriteFence& fence,
@@ -540,8 +575,8 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
     for (size_t di = 0; di < demands.size(); ++di) {
         DemandCand& dc = demands[di];
         Ogre::Vector3 dpos(dc.sx, dc.sy, dc.sz);
-        SourceCand src; src.count = 0;
-        DestCand dst; dst.d2Demand = -1.0;
+        SourceCand src; src.count = 0; src.surplus = false;
+        DestCand dst; dst.d2Demand = -1.0; dst.holds = false;
         int unitsInStorages = 0;
         GameData* itemGD = 0;
 
@@ -577,16 +612,25 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             if (storage) {
                 unitsInStorages += have;
             } else if (have > 0 && uid != dc.stationUid) {
-                // Melhor fonte: mais unidades; empate = mais perto da demanda.
+                // Melhor fonte por CAMADAS: excedente declarado vence sempre
+                // (tirar dali ajuda o produtor); dentro da camada, mais
+                // unidades; empate = mais perto da demanda.
                 Ogre::Vector3 p = b->getPosition();
-                bool better = have > src.count
-                    || (have == src.count && !src.uid.empty()
-                        && dist2(p, dpos) < dist2(Ogre::Vector3(src.x, src.y, src.z), dpos));
+                bool sur = declaresSurplus(b, dc.itemSid);
+                bool better;
+                if (sur != src.surplus) {
+                    better = sur;
+                } else {
+                    better = have > src.count
+                        || (have == src.count && !src.uid.empty()
+                            && dist2(p, dpos) < dist2(Ogre::Vector3(src.x, src.y, src.z), dpos));
+                }
                 if (better) {
                     src.uid = uid;
                     src.name = b->getName();
                     src.x = p.x; src.y = p.y; src.z = p.z;
                     src.count = have;
+                    src.surplus = sur;
                 }
             }
         }
@@ -633,13 +677,27 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             if (inv == 0 || itemGD == 0 || !inv->hasRoomForItem(itemGD)) {
                 continue;
             }
+            // Duas camadas: deposito que JA guarda este item (tipo certo de
+            // armazem) vence sempre; dentro da camada, o mais perto da
+            // demanda. hasRoomForItem sozinho aceita secao generica de
+            // qualquer movel (evidencia 16/07: agua num armario de besta).
+            bool holds = countBySid(inv, dc.itemSid) > 0;
             Ogre::Vector3 p = b->getPosition();
             double d2 = dist2(p, dpos);
-            if (dst.d2Demand < 0.0 || d2 < dst.d2Demand) {
+            bool better;
+            if (dst.d2Demand < 0.0) {
+                better = true;
+            } else if (holds != dst.holds) {
+                better = holds;
+            } else {
+                better = d2 < dst.d2Demand;
+            }
+            if (better) {
                 dst.uid = uid;
                 dst.name = b->getName();
                 dst.x = p.x; dst.y = p.y; dst.z = p.z;
                 dst.d2Demand = d2;
+                dst.holds = holds;
             }
         }
         if (dst.d2Demand < 0.0) {
@@ -663,12 +721,17 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             if (n > HAUL_MAX_CHARS) {
                 n = HAUL_MAX_CHARS;
             }
+            double maxD2 = static_cast<double>(HAUL_MAX_HAULER_DIST_M)
+                         * static_cast<double>(HAUL_MAX_HAULER_DIST_M);
             for (uint32_t i = 0; i < n; ++i) {
                 Character* c = chars[i];
                 if (!freeHauler(pl, c)) {
                     continue;
                 }
                 double d2 = dist2(c->getPosition(), spos);
+                if (d2 > maxD2) {
+                    continue; // longe demais: viajante nao e carregador
+                }
                 bool idle = false;
                 CharBody* body = c->getBody();
                 if (body != 0) {
@@ -684,8 +747,9 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
         if (hauler == 0) {
             if (throttle) {
                 diag::log("HAUL: demanda com fonte e destino prontos, mas SEM "
-                          "carregador livre (todos em posto/ordem/famintos) -- "
-                          "janela de demandas: falta gente livre.");
+                          "carregador livre a menos de 300m da fonte (todos em "
+                          "posto/ordem/famintos/longe) -- janela de demandas: "
+                          "falta gente livre NA BASE.");
                 g_lastLog = g_round;
             }
             if (results.stuff != 0) {
@@ -758,8 +822,11 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
         std::ostringstream s;
         s << "HAUL #" << g_seq << " PLANEJADO: " << batch << "x \"" << dc.itemName
           << "\" [" << dc.itemSid << "] de \"" << src.name << "\" (" << src.uid
-          << ", " << src.count << " disponiveis) -> deposito \"" << dst.name
-          << "\" (" << dst.uid << ") | demanda: \"" << dc.stationName
+          << ", " << src.count << " disponiveis"
+          << (src.surplus ? ", EXCEDENTE declarado" : ", buffer de producao")
+          << ") -> deposito \"" << dst.name << "\" (" << dst.uid
+          << (dst.holds ? ", ja guarda o item" : ", so tem espaco")
+          << ") | demanda: \"" << dc.stationName
           << "\" | carregador: \"" << g_plan.haulerName
           << "\" | reservas OK; a caminho da fonte.";
         diag::milestone(s.str());
