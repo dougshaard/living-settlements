@@ -26,6 +26,8 @@ namespace {
 
 MyGUI::Button* g_btnOrch = 0;
 MyGUI::Button* g_btnGarrison = 0;
+MyGUI::Button* g_btnHaul = 0;
+MyGUI::Button* g_btnHaulOnce = 0;
 MyGUI::Button* g_btnMed = 0;
 MyGUI::Button* g_btnTur = 0;
 
@@ -40,6 +42,13 @@ void refreshCaptions() {
     }
     if (g_btnGarrison != 0) {
         g_btnGarrison->setCaption(label("Guarnicao", e.garrison));
+    }
+    if (g_btnHaul != 0) {
+        g_btnHaul->setCaption(label("Carregador", e.haul));
+    }
+    if (g_btnHaulOnce != 0) {
+        g_btnHaulOnce->setCaption(e.haulOnce ? "Carregador: 1 ciclo (pedido)"
+                                             : "Carregador: 1 ciclo");
     }
     if (g_btnMed != 0) {
         g_btnMed->setCaption(label("Medico (obs)", e.medEnabled));
@@ -61,6 +70,14 @@ void onToggle(MyGUI::WidgetPtr sender) {
         e.garrison = !e.garrison;
         what = "Guarnicao";
         now = e.garrison;
+    } else if (sender == g_btnHaul) {
+        e.haul = !e.haul;
+        what = "Carregador (laco)";
+        now = e.haul;
+    } else if (sender == g_btnHaulOnce) {
+        e.haulOnce = true; // a POC consome no proximo tick (dir.14)
+        what = "Carregador (1 ciclo)";
+        now = true;
     } else if (sender == g_btnMed) {
         e.medEnabled = !e.medEnabled;
         what = "Medico (obs)";
@@ -78,7 +95,7 @@ void onToggle(MyGUI::WidgetPtr sender) {
 
 MyGUI::Button* makeToggle(MyGUI::Widget* parent, float y, const char* name) {
     MyGUI::Button* b = parent->createWidgetReal<MyGUI::Button>(
-        "Kenshi_Button1", 0.05f, y, 0.90f, 0.19f, MyGUI::Align::Default, name);
+        "Kenshi_Button1", 0.05f, y, 0.90f, 0.14f, MyGUI::Align::Default, name);
     b->eventMouseButtonClick += MyGUI::newDelegate(onToggle);
     return b;
 }
@@ -95,14 +112,16 @@ TitleScreen* titleHook(TitleScreen* thisptr) {
         return ts;
     }
     MyGUI::Window* w = gui->createWidgetReal<MyGUI::Window>(
-        "Kenshi_WindowCX", 0.78f, 0.28f, 0.20f, 0.38f,
+        "Kenshi_WindowCX", 0.78f, 0.24f, 0.20f, 0.46f,
         MyGUI::Align::Default, "Window", "LSControlPanel");
     w->setCaption("Living Settlements");
     MyGUI::Widget* c = w->getClientWidget();
-    g_btnOrch     = makeToggle(c, 0.04f, "LSBtnOrch");
-    g_btnGarrison = makeToggle(c, 0.28f, "LSBtnGarrison");
-    g_btnMed      = makeToggle(c, 0.52f, "LSBtnMed");
-    g_btnTur      = makeToggle(c, 0.76f, "LSBtnTur");
+    g_btnOrch     = makeToggle(c, 0.02f, "LSBtnOrch");
+    g_btnGarrison = makeToggle(c, 0.18f, "LSBtnGarrison");
+    g_btnHaul     = makeToggle(c, 0.34f, "LSBtnHaul");
+    g_btnHaulOnce = makeToggle(c, 0.50f, "LSBtnHaulOnce");
+    g_btnMed      = makeToggle(c, 0.66f, "LSBtnMed");
+    g_btnTur      = makeToggle(c, 0.82f, "LSBtnTur");
     refreshCaptions();
     diag::milestone("PAINEL de controle criado (janela 'Living Settlements'; "
                     "toggles ao vivo -- poc.txt e so o default de boot)");

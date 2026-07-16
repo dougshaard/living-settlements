@@ -37,6 +37,10 @@ struct PocEnvState {
     bool        garrison;     // LS_GARRISON == "1": guarnicao automatica de torres
     bool        orchestrator; // LS_ORCHESTRATOR == "1": organizador CONTINUO de
                               // producao/fazendas (Poc025 sem a fase de limpeza)
+    bool        haul;         // LS_HAUL == "1": carregador dirigido (Poc029),
+                              // laco automatico de transporte por demanda
+    bool        haulOnce;     // gatilho do painel (dir.14): 1 ciclo de haul
+                              // mesmo com o laco desligado; a POC consome
     bool        revert;       // LS_POC_REVERT == "1"
     std::string worker;       // LS_POC_WORKER (nome exato; "" = ausente)
     std::string medWorker;    // LS_POC_MED_WORKER; vazio = cai em worker.
@@ -48,7 +52,8 @@ struct PocEnvState {
     std::string garrisonOnly;    // LS_GARRISON_ONLY=uid1,uid2
     std::string garrisonExclude; // LS_GARRISON_EXCLUDE=uid1,uid2
     PocEnvState() : medEnabled(false), turEnabled(false), garrison(false),
-                    orchestrator(false), revert(false) {}
+                    orchestrator(false), haul(false), haulOnce(false),
+                    revert(false) {}
 };
 
 // Snapshot cacheado do ambiente (primeira chamada le; depois so retorna).

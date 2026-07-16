@@ -116,6 +116,7 @@
     <ClCompile Include="src\pocs\Poc026_Medico.cpp" />
     <ClCompile Include="src\pocs\Poc027_Torre.cpp" />
     <ClCompile Include="src\pocs\Poc028_Guarnicao.cpp" />
+    <ClCompile Include="src\pocs\Poc029_Carregador.cpp" />
     <ClCompile Include="src\ui\ControlPanel.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -149,6 +150,7 @@
     <ClInclude Include="src\pocs\Poc026_Medico.h" />
     <ClInclude Include="src\pocs\Poc027_Torre.h" />
     <ClInclude Include="src\pocs\Poc028_Guarnicao.h" />
+    <ClInclude Include="src\pocs\Poc029_Carregador.h" />
     <ClInclude Include="src\ui\ControlPanel.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

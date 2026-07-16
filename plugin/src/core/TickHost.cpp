@@ -14,6 +14,7 @@
 #include "pocs/Poc026_Medico.h"
 #include "pocs/Poc027_Torre.h"
 #include "pocs/Poc028_Guarnicao.h"
+#include "pocs/Poc029_Carregador.h"
 #include "core/PocEnv.h"
 
 #include <core/Functions.h>   // KenshiLib::AddHook / GetRealAddress
@@ -145,6 +146,13 @@ void runPocRound(GameWorld* world, float accumulated) {
         } catch (...) {
             diag::error("GUARNICAO lancou excecao C++ -- abortada");
         }
+    }
+    // Carregador: chamada INCONDICIONAL -- a POC decide (um haul ativo precisa
+    // terminar/abortar mesmo com o toggle desligado no meio; ociosa sai barato).
+    try {
+        pocs::poc029CarregadorTick(world);
+    } catch (...) {
+        diag::error("CARREGADOR lancou excecao C++ -- abortado");
     }
     // Fase A: POCs por toggles (default OFF; ver core/PocEnv.h). A checagem
     // fina (flag + worker + cerca) vive dentro de cada POC.
