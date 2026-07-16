@@ -17,6 +17,7 @@
 // e uma melhora clara sobre o v1, nao o otimo teorico. Ver docs/design/cerebro-declarativo.md sec.7.
 #include "pocs/Poc025_Organizador.h"
 #include "core/LsConfig.h"
+#include "core/PocEnv.h"
 #include "core/Diagnostics.h"
 #include "core/LifecycleGate.h"
 #include "adapters/OrderEmitter.h"
@@ -178,7 +179,12 @@ void clearAllJobs(PlayerInterface* pl, core::CoordMode mode,
 } // namespace
 
 void poc025OrganizadorTick(GameWorld* world) {
-    if (!LS_ENABLE_ORGANIZER || world == 0) {
+    // MODO CONTINUO (LS_ORCHESTRATOR=1, produto): roda TODA rodada, NUNCA
+    // limpa cargos existentes -- so cobre vaga com ocioso-livre (0 cargos),
+    // por necessidade e skill. O modo experimento antigo (LS_ENABLE_ORGANIZER,
+    // compile-time) mantem a fase de limpeza one-shot.
+    bool continuous = core::pocEnv().orchestrator;
+    if ((!LS_ENABLE_ORGANIZER && !continuous) || world == 0) {
         return;
     }
     core::CoordMode mode = core::evaluateLifecycle(world, true);
@@ -207,16 +213,20 @@ void poc025OrganizadorTick(GameWorld* world) {
         return;
     }
 
-    // ---- FASE 1: LIMPAR TUDO (one-shot) ----
+    // ---- FASE 1: LIMPAR TUDO (one-shot; SO no modo experimento antigo) ----
     if (g_phase == ORG_CLEAR) {
-        int charsHit = 0, totalCleared = 0;
-        clearAllJobs(pl, mode, fence, charsHit, totalCleared);
-        std::ostringstream s;
-        s << "ORG CLEAR: removidos " << totalCleared << " cargos de " << charsHit
-          << " personagens. Agora o cerebro organiza a producao da base.";
-        diag::milestone(s.str());
-        g_phase = ORG_RUN;
-        return;
+        if (continuous) {
+            g_phase = ORG_RUN; // produto: aditivo, jamais limpa o que existe
+        } else {
+            int charsHit = 0, totalCleared = 0;
+            clearAllJobs(pl, mode, fence, charsHit, totalCleared);
+            std::ostringstream s;
+            s << "ORG CLEAR: removidos " << totalCleared << " cargos de " << charsHit
+              << " personagens. Agora o cerebro organiza a producao da base.";
+            diag::milestone(s.str());
+            g_phase = ORG_RUN;
+            return;
+        }
     }
 
     // ---- FASE 2: ORGANIZAR (cerebro inteligente; idempotente) ----

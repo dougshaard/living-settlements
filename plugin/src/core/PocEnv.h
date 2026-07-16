@@ -34,6 +34,9 @@ namespace core {
 struct PocEnvState {
     bool        medEnabled;   // LS_ENABLE_POC_MED == "1"
     bool        turEnabled;   // LS_ENABLE_POC_TUR == "1"
+    bool        garrison;     // LS_GARRISON == "1": guarnicao automatica de torres
+    bool        orchestrator; // LS_ORCHESTRATOR == "1": organizador CONTINUO de
+                              // producao/fazendas (Poc025 sem a fase de limpeza)
     bool        revert;       // LS_POC_REVERT == "1"
     std::string worker;       // LS_POC_WORKER (nome exato; "" = ausente)
     std::string medWorker;    // LS_POC_MED_WORKER; vazio = cai em worker.

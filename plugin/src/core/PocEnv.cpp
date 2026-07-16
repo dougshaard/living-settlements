@@ -62,6 +62,10 @@ bool readPocFile(PocEnvState& st) {
             st.medEnabled = (v == "1");
         } else if (k == "LS_ENABLE_POC_TUR") {
             st.turEnabled = (v == "1");
+        } else if (k == "LS_GARRISON") {
+            st.garrison = (v == "1");
+        } else if (k == "LS_ORCHESTRATOR") {
+            st.orchestrator = (v == "1");
         } else if (k == "LS_POC_REVERT") {
             st.revert = (v == "1");
         } else if (k == "LS_POC_WORKER") {
@@ -129,6 +133,8 @@ void logPocEnv() {
     s << "FASE-A toggles (poc.txt " << (g_fileSeen ? "LIDO" : "ausente")
       << " + env override): MED=" << (e.medEnabled ? "ON" : "off")
       << " TUR=" << (e.turEnabled ? "ON" : "off")
+      << " GUARNICAO=" << (e.garrison ? "ON" : "off")
+      << " ORQUESTRADOR=" << (e.orchestrator ? "ON" : "off")
       << " REVERT=" << (e.revert ? "ON" : "off")
       << " worker=" << (e.worker.empty() ? std::string("(nenhum)")
                                          : "\"" + e.worker + "\"")
@@ -136,7 +142,7 @@ void logPocEnv() {
                                                : "\"" + e.medWorker + "\"")
       << " torre=" << (e.turretUid.empty() ? std::string("(mais proxima)")
                                            : e.turretUid);
-    if (e.medEnabled || e.turEnabled) {
+    if (e.medEnabled || e.turEnabled || e.garrison || e.orchestrator) {
         diag::milestone(s.str());
     } else {
         diag::log(s.str()); // tudo OFF: linha comum (estado normal da DLL)

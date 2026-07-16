@@ -13,6 +13,7 @@
 #include "pocs/Poc025_Organizador.h"
 #include "pocs/Poc026_Medico.h"
 #include "pocs/Poc027_Torre.h"
+#include "pocs/Poc028_Guarnicao.h"
 #include "core/PocEnv.h"
 
 #include <core/Functions.h>   // KenshiLib::AddHook / GetRealAddress
@@ -131,16 +132,24 @@ void runPocRound(GameWorld* world, float accumulated) {
             diag::error("AIPROBE (read-only) lancou excecao C++ -- abortada");
         }
     }
-    if (LS_ENABLE_ORGANIZER) {
+    if (LS_ENABLE_ORGANIZER || pocEnv().orchestrator) {
         try {
             pocs::poc025OrganizadorTick(world);
         } catch (...) {
             diag::error("ORGANIZADOR lancou excecao C++ -- abortado");
         }
     }
+    if (pocEnv().garrison) {
+        try {
+            pocs::poc028GuarnicaoTick(world);
+        } catch (...) {
+            diag::error("GUARNICAO lancou excecao C++ -- abortada");
+        }
+    }
     // Fase A: POCs por toggles (default OFF; ver core/PocEnv.h). A checagem
     // fina (flag + worker + cerca) vive dentro de cada POC.
-    if (!g_modCensusDone && (pocEnv().medEnabled || pocEnv().turEnabled)) {
+    if (!g_modCensusDone && (pocEnv().medEnabled || pocEnv().turEnabled
+                             || pocEnv().garrison || pocEnv().orchestrator)) {
         try {
             logModCensus(world);
         } catch (...) {

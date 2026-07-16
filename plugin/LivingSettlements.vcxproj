@@ -115,6 +115,7 @@
     <ClCompile Include="src\pocs\Poc025_Organizador.cpp" />
     <ClCompile Include="src\pocs\Poc026_Medico.cpp" />
     <ClCompile Include="src\pocs\Poc027_Torre.cpp" />
+    <ClCompile Include="src\pocs\Poc028_Guarnicao.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\core\Diagnostics.h" />
@@ -146,6 +147,7 @@
     <ClInclude Include="src\pocs\Poc025_Organizador.h" />
     <ClInclude Include="src\pocs\Poc026_Medico.h" />
     <ClInclude Include="src\pocs\Poc027_Torre.h" />
+    <ClInclude Include="src\pocs\Poc028_Guarnicao.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
