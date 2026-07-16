@@ -27,6 +27,7 @@
 #include <kenshi/Character.h>
 #include <kenshi/CharBody.h>
 #include <kenshi/CharStats.h>
+#include <kenshi/MedicalSystem.h>
 #include <kenshi/Town.h>
 #include <kenshi/InstanceID.h>
 #include <kenshi/Building/Building.h>
@@ -98,6 +99,23 @@ struct CandMoreNeedy {
 bool eligible(Character* c) {
     return c != 0 && c->isAnimal() == 0 && !c->isDead() && !c->isUnconcious()
         && c->canTakePlayerOrdersAtThisTime();
+}
+
+// Diretriz 12(c) (medico-profissao): ferido relevante DESCANSA antes de
+// voltar ao trabalho -- o orquestrador nao escala quem precisa de cuidados.
+// Scores pre-calculados pelo jogo (escritos em fase threaded -> chamar SO
+// com filas limpas, inv.21). Limiar v1 heuristico: arranhao (<0.15) nao
+// tira ninguem do batente; ferida de verdade sim, ate o medico/descanso
+// zerarem o score.
+static const float ORG_REST_WOUND_THRESHOLD = 0.15f;
+
+bool needsRestBeforeWork(Character* c) {
+    MedicalSystem* med = c->getMedical();
+    if (med == 0) {
+        return false;
+    }
+    return (med->needsFirstAidScoreTotal_fleshy
+            + med->needsFirstAidScoreTotal_robot) > ORG_REST_WOUND_THRESHOLD;
 }
 
 // R1: o char que o jogador tem SELECIONADO nao deve receber cargo -- enquanto
@@ -235,6 +253,7 @@ void poc025OrganizadorTick(GameWorld* world) {
     bool       used[ORG_MAX_AVAIL];
     int navail = 0;
     int skippedSelected = 0;
+    int skippedResting = 0;
     {
         lektor<Character*>& chars = pl->playerCharacters;
         uint32_t nc = chars.size();
@@ -251,6 +270,13 @@ void poc025OrganizadorTick(GameWorld* world) {
             }
             if (isSelectedByPlayer(pl, c)) {
                 ++skippedSelected; // R1: nao mexer em quem o jogador esta comandando
+                continue;
+            }
+            // Diretriz 12(c): ferido descansa antes de trabalhar. Leitura
+            // threaded -> so quando as filas estao limpas (e a atribuicao
+            // adiante ja exige isso de qualquer forma).
+            if (fence.threadsClear && needsRestBeforeWork(c)) {
+                ++skippedResting;
                 continue;
             }
             used[navail] = false;
@@ -433,6 +459,9 @@ void poc025OrganizadorTick(GameWorld* world) {
           << "skill-aware";
         if (skippedSelected > 0) {
             s << "; pulou " << skippedSelected << " selecionado(s) [R1]";
+        }
+        if (skippedResting > 0) {
+            s << "; " << skippedResting << " ferido(s) em DESCANSO [dir.12c]";
         }
         s << ").";
         diag::milestone(s.str());
