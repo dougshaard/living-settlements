@@ -121,6 +121,7 @@
     <ClCompile Include="src\pocs\Poc030_LimparCargos.cpp" />
     <ClCompile Include="src\pocs\Poc031_Medicos.cpp" />
     <ClCompile Include="src\ui\ControlPanel.cpp" />
+    <ClCompile Include="src\ui\BuildingPanel.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\core\Diagnostics.h" />
@@ -158,6 +159,7 @@
     <ClInclude Include="src\pocs\Poc030_LimparCargos.h" />
     <ClInclude Include="src\pocs\Poc031_Medicos.h" />
     <ClInclude Include="src\ui\ControlPanel.h" />
+    <ClInclude Include="src\ui\BuildingPanel.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

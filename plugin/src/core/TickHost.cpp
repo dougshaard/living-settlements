@@ -17,6 +17,7 @@
 #include "pocs/Poc029_Carregador.h"
 #include "pocs/Poc030_LimparCargos.h"
 #include "pocs/Poc031_Medicos.h"
+#include "ui/BuildingPanel.h"
 #include "core/PocEnv.h"
 #include "core/Porters.h"
 
@@ -238,6 +239,17 @@ void mainLoopHook(GameWorld* thisptr, float time) {
             pocs::poc021Probe(thisptr);
         } catch (...) {
             diag::error("POC-021 (probe M2) lancou excecao C++ -- ignorada");
+        }
+    }
+
+    // Painel por predio (teste): poll por FRAME, ANTES do gate de pausa, p/
+    // abrir a janela mesmo com o jogo pausado (Kenshi deixa clicar pausado).
+    // Barato: so age quando a selecao muda p/ um predio novo. Nunca derruba.
+    if (thisptr != 0) {
+        try {
+            ui::pollBuildingSelection(thisptr);
+        } catch (...) {
+            diag::error("PAINEL-PREDIO lancou excecao C++ -- ignorado");
         }
     }
 
