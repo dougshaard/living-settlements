@@ -15,6 +15,10 @@ bool isDispatchable(const WorkerView& w) {
     if (w.hasPermajob()) {
         return false;                 // tem papel -> deixar ao GOAP
     }
+    if (w.declaredPorter) {
+        return false;                 // carregador declarado: pensamento
+                                      // isolado da logistica (decisao 17/07)
+    }
     if (!w.isAuthorizableTarget()) {
         return false;                 // autoridade do jogador e sagrada
     }

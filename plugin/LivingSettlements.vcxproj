@@ -92,6 +92,7 @@
     <ClCompile Include="src\core\VersionGate.cpp" />
     <ClCompile Include="src\core\LifecycleGate.cpp" />
     <ClCompile Include="src\core\PocEnv.cpp" />
+    <ClCompile Include="src\core\Porters.cpp" />
     <ClCompile Include="src\domain\ReservationManager.cpp" />
     <ClCompile Include="src\domain\WorkModel.cpp" />
     <ClCompile Include="src\domain\OperatorReconciler.cpp" />
@@ -128,6 +129,7 @@
     <ClInclude Include="src\core\VersionGate.h" />
     <ClInclude Include="src\core\LifecycleGate.h" />
     <ClInclude Include="src\core\PocEnv.h" />
+    <ClInclude Include="src\core\Porters.h" />
     <ClInclude Include="src\domain\ReservationManager.h" />
     <ClInclude Include="src\domain\WorkModel.h" />
     <ClInclude Include="src\domain\OperatorReconciler.h" />

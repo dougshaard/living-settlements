@@ -134,13 +134,17 @@ struct WorkerView {
     double       firstAidFleshy;  // needsFirstAidScoreTotal_fleshy [V]
     double       firstAidRobot;   // needsFirstAidScoreTotal_robot [V]
     bool         firstAidObserved;
+    // Declarado CARREGADOR pelo jogador (aba do painel; decisao 17/07):
+    // secao de pensamento ISOLADA -- fora do pool de producao (WorkerPool),
+    // da guarnicao e do plantao medico; so o transporte recruta.
+    bool         declaredPorter;
 
     WorkerView() : isAnimal(false), isIdle(false), hungerBand(HUNGER_OK),
                    canTakeOrders(false), currentPriority(0),
                    underDirectOrder(false), selectedByPlayer(false),
                    posX(0.0), posY(0.0), posZ(0.0), carryNow(0.0), carryMax(0.0),
                    carryObserved(false), firstAidFleshy(0.0), firstAidRobot(0.0),
-                   firstAidObserved(false) {}
+                   firstAidObserved(false), declaredPorter(false) {}
 
     // Fracao da capacidade carregada (inv.17). 0 se capacidade desconhecida ou
     // nao observada. So confiavel quando carryObserved (rodada thread-safe).

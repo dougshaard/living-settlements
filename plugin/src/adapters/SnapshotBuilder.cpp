@@ -4,6 +4,7 @@
 #include "adapters/SnapshotBuilder.h"
 #include "core/LsConfig.h"
 #include "core/Diagnostics.h"
+#include "core/Porters.h"
 
 #include <kenshi/GameWorld.h>
 #include <kenshi/PlayerInterface.h>
@@ -429,6 +430,7 @@ bool buildWorkSnapshot(GameWorld* world, bool threadSafe,
         w.hungerBand = hungerBandOf(c->getMedical());
         w.canTakeOrders = c->canTakePlayerOrdersAtThisTime();
         w.selectedByPlayer = isSelectedByPlayer(world->player, c);
+        w.declaredPorter = core::isPorter(c);
 
         int npj = c->getPermajobCount();
         for (int s = 0; s < npj; ++s) {

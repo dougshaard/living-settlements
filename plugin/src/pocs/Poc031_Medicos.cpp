@@ -8,6 +8,7 @@
 // Escrita APENAS via OrderEmitter atras de writeGateOpen. Caps duros.
 #include "pocs/Poc031_Medicos.h"
 #include "core/PocEnv.h"
+#include "core/Porters.h"
 #include "core/Diagnostics.h"
 #include "core/LifecycleGate.h"
 #include "adapters/OrderEmitter.h"
@@ -245,6 +246,9 @@ void poc031MedicosTick(GameWorld* world) {
         }
         if (selectedByPlayer(pl, c) || underDirectOrder(c)) {
             continue; // autoridade do jogador e sagrada (inv.7.1.3)
+        }
+        if (core::isPorter(c)) {
+            continue; // carregador declarado: pensamento isolado (17/07)
         }
         bool isFree = false, guard = false, rebuildable = false;
         profileChar(c, isFree, guard, rebuildable);

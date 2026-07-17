@@ -11,6 +11,7 @@
 // nao tem.
 #include "pocs/Poc028_Guarnicao.h"
 #include "core/PocEnv.h"
+#include "core/Porters.h"
 #include "core/Diagnostics.h"
 #include "core/LifecycleGate.h"
 #include "core/LsConfig.h"
@@ -301,6 +302,9 @@ void poc028GuarnicaoTick(GameWorld* world) {
             Character* c = chars[i];
             if (!eligible(c)) {
                 continue;
+            }
+            if (core::isPorter(c)) {
+                continue; // carregador declarado: pensamento isolado (17/07)
             }
             bool ok = false;
             int tc = 0;

@@ -23,6 +23,7 @@
 //     libera reservas, cooldown (task_lifecycle FAILED).
 #include "pocs/Poc029_Carregador.h"
 #include "core/PocEnv.h"
+#include "core/Porters.h"
 #include "core/Diagnostics.h"
 #include "core/LifecycleGate.h"
 #include "core/LsConfig.h"
@@ -63,7 +64,6 @@ namespace {
 
 // ---- Caps duros (guardrail do hang) e parametros da v1 ----
 static const uint32_t HAUL_MAX_CHARS        = 512;
-static const int      HAUL_MAX_SLOTS        = 64;
 static const int      HAUL_MAX_ITEM_SCAN    = 512;  // itens varridos por inventario
 static const int      HAUL_MAX_STACK_MOVES  = 16;   // stacks movidos por transferencia
 static const int      HAUL_BATCH_MAX        = 5;    // REQ-LOG-004: lote seguro (unidades)
@@ -72,11 +72,6 @@ static const double   HAUL_MAX_LOAD_RATIO   = 0.80; // nunca lotar o inventario 
 static const float    HAUL_ARRIVE_M         = 6.0f; // chegada = a menos de 6m do predio
                                                     // (POC-011 confirmou <2m ao ar livre;
                                                     // predio tem raio -> folga)
-static const float    HAUL_MAX_HAULER_DIST_M = 300.0f; // carregador tem que estar PERTO
-                                                    // da fonte (evidencia 16/07: o "mais
-                                                    // perto" era um viajante a ~900m cujo
-                                                    // squad sobrepunha o destino -> perna
-                                                    // futil; viajante nao e carregador)
 static const unsigned long HAUL_LEG_TIMEOUT   = 18; // rodadas (~3min) por perna
 static const unsigned long HAUL_REEMIT_EVERY  = 6;  // re-emitir destino a cada N rodadas
 static const int           HAUL_MAX_REEMITS   = 3;
@@ -124,47 +119,19 @@ double        g_lastNow = -1.0;     // deteccao de rollback (relogio andou p/ tr
 ls::domain::ReservationManager g_res;
 std::map<std::string, unsigned long> g_cooldown; // taskKey -> rodada liberada
 
-// Cargos que tornam um char NAO-carregador: produtor/medico/construtor ficam
-// nos postos deles (inv.17 do orquestrador) e guardas ficam nas torres
-// (diretriz 10). Constantes NOMEADAS (inv.12).
-bool isNonHaulDuty(TaskType k) {
-    switch (k) {
-        case OPERATE_MACHINERY:
-        case OPERATE_AUTOMATIC_MACHINERY:
-        case OPERATE_STORAGE:
-        case FILL_MACHINE:
-        case COLLECT_OUTPUT_RESOURCE:
-        case EMPTY_MACHINE_OUTPUTS:
-        case JOB_MEDIC:
-        case BUILD:
-        case USE_TURRET:
-        case MAN_A_TURRET_PLAYER_JOB:
-            return true;
-        default:
-            return false;
-    }
-}
-
 bool eligible(Character* c) {
     return c != 0 && c->isAnimal() == 0 && !c->isDead() && !c->isUnconcious()
         && c->canTakePlayerOrdersAtThisTime();
 }
 
-// Carregador candidato: elegivel, sem cargos que o prendem a um posto, nao
-// selecionado pelo jogador (autoridade, inv.7.1.3), sem ordem direta em
-// curso e nao faminto (nunca mandar um esfomeado carregar peso).
-bool freeHauler(PlayerInterface* pl, Character* c) {
-    if (!eligible(c)) {
+// Carregador candidato (decisao do dono 17/07): SO quem foi DECLARADO na
+// aba Carregadores -- a declaracao e do jogador (dir.11) e substitui o
+// antigo filtro de "livre a 300m" (esperar sorte de ter gente perto e
+// ruim; carregador declarado atravessa a base). Mantem os gates de
+// autoridade: elegivel, nao selecionado, sem ordem direta, nao faminto.
+bool porterAvailable(PlayerInterface* pl, Character* c) {
+    if (!eligible(c) || !core::isPorter(c)) {
         return false;
-    }
-    int n = c->getPermajobCount();
-    if (n > HAUL_MAX_SLOTS) {
-        n = HAUL_MAX_SLOTS;
-    }
-    for (int s = 0; s < n; ++s) {
-        if (isNonHaulDuty(c->getPermajob(s))) {
-            return false;
-        }
     }
     if (pl != 0) {
         hand sel = pl->selectedCharacter;
@@ -728,7 +695,8 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             continue;
         }
 
-        // 3) Carregador: char LIVRE mais perto da fonte (ocioso preferido).
+        // 3) Carregador: o DECLARADO disponivel mais perto da fonte (ocioso
+        // preferido). Sem trava de distancia: declarado atravessa a base.
         Character* hauler = 0;
         double bestScore = 0.0;
         Ogre::Vector3 spos(src.x, src.y, src.z);
@@ -738,17 +706,12 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             if (n > HAUL_MAX_CHARS) {
                 n = HAUL_MAX_CHARS;
             }
-            double maxD2 = static_cast<double>(HAUL_MAX_HAULER_DIST_M)
-                         * static_cast<double>(HAUL_MAX_HAULER_DIST_M);
             for (uint32_t i = 0; i < n; ++i) {
                 Character* c = chars[i];
-                if (!freeHauler(pl, c)) {
+                if (!porterAvailable(pl, c)) {
                     continue;
                 }
                 double d2 = dist2(c->getPosition(), spos);
-                if (d2 > maxD2) {
-                    continue; // longe demais: viajante nao e carregador
-                }
                 bool idle = false;
                 CharBody* body = c->getBody();
                 if (body != 0) {
@@ -763,10 +726,15 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
         }
         if (hauler == 0) {
             if (throttle) {
-                diag::log("HAUL: demanda com fonte e destino prontos, mas SEM "
-                          "carregador livre a menos de 300m da fonte (todos em "
-                          "posto/ordem/famintos/longe) -- janela de demandas: "
-                          "falta gente livre NA BASE.");
+                if (core::porterCount() == 0) {
+                    diag::milestone("HAUL: demanda pronta mas NENHUM carregador "
+                                    "DECLARADO -- abra o painel > Carregadores e "
+                                    "escolha quem transporta (janela de demandas).");
+                } else {
+                    diag::log("HAUL: demanda pronta mas os carregadores declarados "
+                              "estao indisponiveis (KO/ordem direta/famintos) -- "
+                              "aguardando.");
+                }
                 g_lastLog = g_round;
             }
             if (results.stuff != 0) {

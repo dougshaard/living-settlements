@@ -18,6 +18,7 @@
 #include "pocs/Poc030_LimparCargos.h"
 #include "pocs/Poc031_Medicos.h"
 #include "core/PocEnv.h"
+#include "core/Porters.h"
 
 #include <core/Functions.h>   // KenshiLib::AddHook / GetRealAddress
 #include <kenshi/GameWorld.h> // GameWorld::_NV_mainLoop_GPUSensitiveStuff, isPaused
@@ -87,6 +88,14 @@ void runPocRound(GameWorld* world, float accumulated) {
          << " ticks) ----";
     g_lastRoundTick = g_tickCount;
     diag::log(head.str());
+
+    // Espelho do roster p/ a aba Carregadores (leitura barata, main thread;
+    // a GUI nunca le o mundo -- so este espelho).
+    try {
+        core::refreshRoster(world);
+    } catch (...) {
+        diag::error("espelho do roster lancou excecao C++ -- ignorado");
+    }
 
     // try/catch cobre exceções C++ do nosso próprio código (std::bad_alloc
     // etc). NÃO captura access violation do jogo (isso exigiria /EHa);
