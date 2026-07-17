@@ -154,6 +154,39 @@ bool porterAvailable(PlayerInterface* pl, Character* c) {
     return true;
 }
 
+// Motivo de um DECLARADO nao estar disponivel (diagnostico; espelha
+// porterAvailable). "" = disponivel.
+const char* porterUnavailReason(PlayerInterface* pl, Character* c) {
+    if (c == 0 || c->isDead()) {
+        return "morto/ausente";
+    }
+    if (c->isUnconcious()) {
+        return "KO";
+    }
+    if (!c->canTakePlayerOrdersAtThisTime()) {
+        return "sem-ordens-agora";
+    }
+    if (pl != 0) {
+        hand sel = pl->selectedCharacter;
+        if (sel.isValid() && sel.getCharacter() == c) {
+            return "selecionado-por-voce";
+        }
+    }
+    CharBody* body = c->getBody();
+    if (body != 0) {
+        Tasker* action = body->getCurrentAction();
+        if (action != 0
+            && static_cast<int>(action->priority) >= static_cast<int>(TP_OBEDIENCE)) {
+            return "sob-sua-ordem-direta";
+        }
+    }
+    MedicalSystem* med = c->getMedical();
+    if (med != 0 && med->isReallyHungry()) {
+        return "faminto";
+    }
+    return "";
+}
+
 std::string uidOf(Building* b) {
     InstanceID* iid = b->getInstanceID();
     return (iid != 0) ? iid->uid : std::string();
@@ -731,9 +764,37 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
                                     "DECLARADO -- abra o painel > Carregadores e "
                                     "escolha quem transporta (janela de demandas).");
                 } else {
-                    diag::log("HAUL: demanda pronta mas os carregadores declarados "
-                              "estao indisponiveis (KO/ordem direta/famintos) -- "
-                              "aguardando.");
+                    // CENSO: quantos declarados o motor RECONHECE (isPorter) e,
+                    // dos reconhecidos, o motivo de cada um nao estar livre. Se
+                    // reconhecidos < declarados, sobrou identidade que nao casa
+                    // (char saiu do mundo) -- visivel aqui.
+                    int recognized = 0, detail = 0;
+                    std::ostringstream why;
+                    lektor<Character*>& cc = pl->playerCharacters;
+                    uint32_t nn = cc.size();
+                    if (nn > HAUL_MAX_CHARS) {
+                        nn = HAUL_MAX_CHARS;
+                    }
+                    for (uint32_t i = 0; i < nn; ++i) {
+                        Character* c = cc[i];
+                        if (c == 0 || !core::isPorter(c)) {
+                            continue;
+                        }
+                        ++recognized;
+                        const char* r = porterUnavailReason(pl, c);
+                        if (r[0] != '\0' && detail < 8) {
+                            why << (detail ? ", " : "") << "\"" << c->getName()
+                                << "\"=" << r;
+                            ++detail;
+                        }
+                    }
+                    std::ostringstream s;
+                    s << "HAUL: demanda pronta mas nenhum carregador livre. "
+                      << core::porterCount() << " declarado(s), " << recognized
+                      << " reconhecido(s); motivos: "
+                      << (why.str().empty() ? std::string("(todos livres?? anomalia)")
+                                            : why.str());
+                    diag::milestone(s.str());
                 }
                 g_lastLog = g_round;
             }

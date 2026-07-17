@@ -121,11 +121,13 @@ void refreshCaptions() {
         g_btnGarrison->setCaption(label("Guarnicao", e.garrison));
     }
     if (g_btnHaul != 0) {
-        g_btnHaul->setCaption(label("Carregador", e.haul));
+        // Laco CONTINUO de transporte (roda sempre que ligado; nao e 1 ciclo).
+        g_btnHaul->setCaption(label("Transporte auto", e.haul));
     }
     if (g_btnHaulOnce != 0) {
-        g_btnHaulOnce->setCaption(e.haulOnce ? "Carregador: 1 ciclo (pedido)"
-                                             : "Carregador: 1 ciclo");
+        // Gatilho manual: forca UMA viagem agora, mesmo com o auto desligado.
+        g_btnHaulOnce->setCaption(e.haulOnce ? "Forcar transporte: pedido..."
+                                             : "Forcar 1 transporte agora");
     }
     if (g_btnMed != 0) {
         g_btnMed->setCaption(label("Medicos", e.medicRole));
@@ -158,11 +160,11 @@ void onToggle(MyGUI::WidgetPtr sender) {
         now = e.garrison;
     } else if (sender == g_btnHaul) {
         e.haul = !e.haul;
-        what = "Carregador (laco)";
+        what = "Transporte auto (laco continuo)";
         now = e.haul;
     } else if (sender == g_btnHaulOnce) {
         e.haulOnce = true; // a POC consome no proximo tick (dir.14)
-        what = "Carregador (1 ciclo)";
+        what = "Forcar 1 transporte agora";
         now = true;
     } else if (sender == g_btnMed) {
         e.medicRole = !e.medicRole;

@@ -21,14 +21,24 @@ static const uint32_t PORTER_MAX_CHARS = 512;
 std::vector<hand>        g_porters;
 std::vector<RosterEntry> g_roster;
 
+// CHAVE ESTAVEL por hand::toString() (ADR-015), NAO por operator==. O
+// operator== de hand mostrou-se NAO-confiavel in-game (17/07): declarar o
+// mesmo char duas vezes nunca casava -> so somava, nunca alternava, e
+// isPorter() nunca reconhecia os declarados (carregador via "16 declarados"
+// mas "nenhum disponivel"). toString() serializa index+serial+type -- a
+// identidade de referencia, estavel entre chamadas na mesma sessao.
+std::string keyOf(const hand& h) {
+    return h.toString();
+}
+
 bool sameHand(const hand& a, const hand& b) {
-    // operator== de hand [V] (hand.h:43) -- identidade index+serial.
-    return a == b;
+    return keyOf(a) == keyOf(b);
 }
 
 int findPorter(const hand& h) {
+    std::string k = keyOf(h);
     for (size_t i = 0; i < g_porters.size(); ++i) {
-        if (sameHand(g_porters[i], h)) {
+        if (keyOf(g_porters[i]) == k) {
             return static_cast<int>(i);
         }
     }
