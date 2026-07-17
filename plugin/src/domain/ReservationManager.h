@@ -108,6 +108,14 @@ public:
     // foram liberados. Chamar a cada tick do coordenador.
     int expire(Tick now);
 
+    // RENOVA (estende) todos os leases do dono para expiresAt = max(atual,
+    // newExpiry), sem alterar quantidade -- ao contrario de acquireAtomic, que
+    // FUNDE (soma) a quantidade. Serve para manter viva a reserva de uma tarefa
+    // em ANDAMENTO (ex.: carregador numa caminhada longa) enquanto o dono ainda
+    // a controla; expire() so recolhe orfaos que ninguem renova. Retorna
+    // quantos leases foram tocados.
+    int touch(const OwnerKey& owner, Tick newExpiry);
+
     // Falha nunca deixa reserva presa (PRINC-005) — releaseOwner é o
     // caminho; este utilitário verifica o invariante em testes.
     bool ownerHasLeases(const OwnerKey& owner) const;

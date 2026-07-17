@@ -246,6 +246,21 @@ int ReservationManager::expire(Tick now) {
     return released;
 }
 
+int ReservationManager::touch(const OwnerKey& owner, Tick newExpiry) {
+    int touched = 0;
+    for (Table::iterator it = table_.begin(); it != table_.end(); ++it) {
+        std::vector<Lease>& leases = it->second.leases;
+        for (size_t i = 0; i < leases.size(); ++i) {
+            if (leases[i].owner == owner && leases[i].expiresAt < newExpiry) {
+                leases[i].expiresAt = newExpiry;
+                it->second.version++;
+                ++touched;
+            }
+        }
+    }
+    return touched;
+}
+
 bool ReservationManager::ownerHasLeases(const OwnerKey& owner) const {
     for (Table::const_iterator it = table_.begin(); it != table_.end(); ++it) {
         const std::vector<Lease>& leases = it->second.leases;

@@ -35,14 +35,18 @@ static const int PB_ROWS = 4;
 MyGUI::Window* g_win = 0;
 MyGUI::Button* g_row[PB_ROWS] = { 0 };
 bool           g_built = false;
-std::string    g_lastKey; // uid do predio em exibicao ("" = nenhum/fechado)
+std::string    g_lastKey;   // predio tratado por ultimo (mostrado OU fechado)
+std::string    g_closedKey; // predio que o jogador FECHOU (fica oculto ate ele
+                            // selecionar outro) -- conserta o "impossivel fechar"
 
 void onWindowButton(MyGUI::Window* sender, const std::string& button) {
-    // Botao de fechar (X) do skin CX manda "close". Esconder e esquecer o
-    // predio atual -> clicar o MESMO predio de novo reabre.
-    if (button == "close" && sender != 0) {
+    // Fechar por QUALQUER botao da barra (o skin CX so tem o X). NAO limpar
+    // g_lastKey: o predio segue selecionado, e limpar faria o poll reabrir no
+    // frame seguinte (bug "impossivel fechar"). Marcar como fechado e sair.
+    diag::log(std::string("PAINEL-PREDIO: botao da janela = '") + button + "'");
+    if (sender != 0) {
         sender->setVisible(false);
-        g_lastKey.clear();
+        g_closedKey = g_lastKey;
     }
 }
 
@@ -152,6 +156,12 @@ void pollBuildingSelection(GameWorld* world) {
     if (b == 0) {
         return; // clique nao foi num predio -> nada a fazer (janela fica)
     }
+    // CHAVE de identidade do predio. Achado in-game 17/07: predios
+    // ESTRUTURAIS ("Casa em L") NAO tem uid -- so os objetos/moveis colocados
+    // (camas, maquinas) tem. E o hand::toString() e instavel entre frames
+    // (re-disparava a mesma casa). A POSICAO e o fallback estavel: predio nao
+    // se move; casas distintas ficam em pontos distintos. (Vale tambem p/ o
+    // futuro sistema de declaracao por predio: uid quando ha, senao posicao.)
     std::string key;
     {
         InstanceID* iid = b->getInstanceID();
@@ -160,12 +170,20 @@ void pollBuildingSelection(GameWorld* world) {
         }
     }
     if (key.empty()) {
-        key = sel.toString(); // predio em obra sem uid: chave pela referencia
+        Ogre::Vector3 p = b->getPosition();
+        std::ostringstream k;
+        k << "pos:" << static_cast<int>(p.x) << "," << static_cast<int>(p.y)
+          << "," << static_cast<int>(p.z);
+        key = k.str();
     }
     if (key == g_lastKey) {
-        return; // mesmo predio ja em exibicao -> nada a refazer
+        return; // mesmo predio ja tratado (mostrado ou fechado) -> nada a fazer
     }
     g_lastKey = key;
+    if (key == g_closedKey) {
+        return; // este e o predio que voce fechou e ainda esta selecionado
+    }
+    g_closedKey.clear(); // outro predio -> esquece a memoria de fechado
     showFor(b);
 }
 

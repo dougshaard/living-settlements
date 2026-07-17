@@ -72,12 +72,20 @@ static const double   HAUL_MAX_LOAD_RATIO   = 0.80; // nunca lotar o inventario 
 static const float    HAUL_ARRIVE_M         = 6.0f; // chegada = a menos de 6m do predio
                                                     // (POC-011 confirmou <2m ao ar livre;
                                                     // predio tem raio -> folga)
-static const unsigned long HAUL_LEG_TIMEOUT   = 18; // rodadas (~3min) por perna
+// Timeout por perna e por PROGRESSO, nao por tempo fixo: bases grandes tem
+// caminhadas de >1500m (evidencia 17/07: haul abortava a meio caminho com o
+// carregador ainda andando). So aborta se PARAR de se aproximar (pathing
+// travado) por N rodadas; um teto absoluto generoso e o ultimo backstop.
+static const unsigned long HAUL_LEG_STALL_MAX = 9;   // rodadas SEM progresso -> travado
+static const unsigned long HAUL_LEG_HARD_CAP  = 120; // teto absoluto por perna (~20min)
+static const double        HAUL_PROGRESS_EPS  = 25.0;// dist2 tem que cair ao menos isto
 static const unsigned long HAUL_REEMIT_EVERY  = 6;  // re-emitir destino a cada N rodadas
-static const int           HAUL_MAX_REEMITS   = 3;
+static const int           HAUL_MAX_REEMITS   = 6;
 static const unsigned long HAUL_FAIL_COOLDOWN = 30; // rodadas ate re-tentar a mesma tarefa
 static const unsigned long HAUL_DONE_COOLDOWN = 6;  // pos-sucesso: deixa o estoque assentar
-static const double        HAUL_LEASE_HOURS   = 6.0;// lease da reserva (horas de jogo)
+// Lease LONGO + renovado a cada rodada ativa (touch): a reserva nunca expira
+// enquanto o haul avanca; expire() so recolhe orfaos que ninguem renova.
+static const double        HAUL_LEASE_HOURS   = 48.0;
 static const int           HAUL_MAX_DEMANDS   = 16; // pares (estacao,item) avaliados/rodada
 
 // ---- Plano do haul: SO ids estaveis (uid/nome/stringID) e floats. NENHUM
@@ -102,12 +110,15 @@ struct HaulPlan {
     float       dstX, dstY, dstZ;
     int         batch;          // unidades alvo desta viagem
     int         pickedUp;       // unidades a bordo (contadas na coleta)
-    unsigned long legStart;     // rodada em que a perna comecou
+    unsigned long legStart;     // rodada em que a perna comecou (teto absoluto)
+    double        legBestDist2; // menor dist2 ja visto nesta perna (-1 = novo)
+    unsigned long legStall;     // rodadas consecutivas SEM aproximar
     int         reEmits;
     std::string owner;          // dono logico das reservas ("haul:<seq>")
     HaulPlan() : active(false), phase(HP_GO_SRC),
                  srcX(0), srcY(0), srcZ(0), dstX(0), dstY(0), dstZ(0),
-                 batch(0), pickedUp(0), legStart(0), reEmits(0) {}
+                 batch(0), pickedUp(0), legStart(0), legBestDist2(-1.0),
+                 legStall(0), reEmits(0) {}
 };
 
 HaulPlan      g_plan;
@@ -863,6 +874,8 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
         g_plan.batch = batch;
         g_plan.pickedUp = 0;
         g_plan.legStart = g_round;
+        g_plan.legBestDist2 = -1.0;
+        g_plan.legStall = 0;
         g_plan.reEmits = 0;
         g_plan.owner = owner;
 
@@ -931,9 +944,15 @@ void poc029CarregadorTick(GameWorld* world) {
         return; // proxima rodada re-deriva do zero
     }
     g_lastNow = now;
+    // RENOVA a reserva do haul vivo ANTES de expirar orfaos: enquanto a tarefa
+    // avanca, a reserva nunca vence (caminhadas longas nao mais matam o haul).
+    if (g_plan.active) {
+        g_res.touch(g_plan.owner, now + HAUL_LEASE_HOURS);
+    }
     g_res.expire(now);
     if (g_plan.active && !g_res.ownerHasLeases(g_plan.owner)) {
-        abortHaul("lease expirado", taskKeyOf(g_plan.demandUid, g_plan.itemSid));
+        abortHaul("reserva perdida (recurso sumiu por fora)",
+                  taskKeyOf(g_plan.demandUid, g_plan.itemSid));
         return;
     }
 
@@ -993,8 +1012,22 @@ void poc029CarregadorTick(GameWorld* world) {
 
     if (d2 > arrive2) {
         unsigned long onLeg = g_round - g_plan.legStart;
-        if (onLeg > HAUL_LEG_TIMEOUT) {
-            abortHaul("timeout de perna (nao chegou)",
+        // PROGRESSO: aproximou desde o melhor ja visto? zera o contador de
+        // travamento; senao, conta. So aborta se TRAVOU (pathing sem saida),
+        // nunca por caminhada longa.
+        if (g_plan.legBestDist2 < 0.0 || d2 < g_plan.legBestDist2 - HAUL_PROGRESS_EPS) {
+            g_plan.legBestDist2 = d2;
+            g_plan.legStall = 0;
+        } else {
+            ++g_plan.legStall;
+        }
+        if (g_plan.legStall > HAUL_LEG_STALL_MAX) {
+            abortHaul("carregador travado (sem se aproximar; pathing sem rota)",
+                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
+            return;
+        }
+        if (onLeg > HAUL_LEG_HARD_CAP) {
+            abortHaul("teto absoluto da perna (caminhada longa demais)",
                       taskKeyOf(g_plan.demandUid, g_plan.itemSid));
             return;
         }
@@ -1013,7 +1046,8 @@ void poc029CarregadorTick(GameWorld* world) {
             std::ostringstream s;
             s << "HAUL #" << g_seq << " ("
               << (g_plan.phase == HP_GO_SRC ? "rumo a fonte" : "rumo ao deposito")
-              << "): dist2=" << d2 << " rodada-da-perna=" << onLeg;
+              << "): dist2=" << d2 << " rodada-da-perna=" << onLeg
+              << " travado=" << g_plan.legStall;
             diag::log(s.str());
             g_lastLog = g_round;
         }
@@ -1069,6 +1103,8 @@ void poc029CarregadorTick(GameWorld* world) {
         g_plan.pickedUp = inHaul;
         g_plan.phase = HP_GO_DST;
         g_plan.legStart = g_round;
+        g_plan.legBestDist2 = -1.0;
+        g_plan.legStall = 0;
         g_plan.reEmits = 0;
         adapters::EmitResult r = adapters::emitPreposition(
             mode, fence, w, Ogre::Vector3(g_plan.dstX, g_plan.dstY, g_plan.dstZ));
