@@ -97,7 +97,12 @@ struct HaulPlan {
     std::string srcUid, srcName;
     std::string dstUid, dstName;
     std::string demandUid, demandName; // estacao faminta que motivou (pull)
-    std::string haulerName;
+    hand        haulerHand;     // IDENTIDADE do carregador (ADR-015: referencia
+                                // fraca do proprio jogo, index+serial). Nome NAO
+                                // identifica: roster grande tem "Hive 23" em
+                                // dobro (bug real 17/07: plano escolheu o de
+                                // perto, rastreio re-resolvia o gemeo a 2km)
+    std::string haulerName;     // so p/ log
     float       srcX, srcY, srcZ;
     float       dstX, dstY, dstZ;
     int         batch;          // unidades alvo desta viagem
@@ -180,24 +185,6 @@ bool freeHauler(PlayerInterface* pl, Character* c) {
         return false;
     }
     return true;
-}
-
-Character* findCharByName(GameWorld* world, const std::string& name) {
-    if (world == 0 || world->player == 0 || name.empty()) {
-        return 0;
-    }
-    lektor<Character*>& chars = world->player->playerCharacters;
-    uint32_t n = chars.size();
-    if (n > HAUL_MAX_CHARS) {
-        n = HAUL_MAX_CHARS;
-    }
-    for (uint32_t i = 0; i < n; ++i) {
-        Character* c = chars[i];
-        if (c != 0 && c->getName() == name) {
-            return c;
-        }
-    }
-    return 0;
 }
 
 std::string uidOf(Building* b) {
@@ -446,8 +433,32 @@ struct DestCand {
     std::string uid, name;
     float       x, y, z;
     double      d2Demand;
-    bool        holds;   // o deposito JA guarda este item (tipo certo de armazem)
+    int         tier;    // 2 = TIPADO p/ o item; 1 = ja guarda; 0 = so espaco
 };
+
+// Deposito TIPADO para o item: alguma secao com veryLimitedSlot NAO-vazio
+// aceita este GameData -- e um armazem FEITO para ele (sinal de tipo valido
+// mesmo com estoque zero, que e exatamente quando o carregador trabalha).
+// getAllSections/getVeryLimitedSlot retornam REFERENCIA a membro (nao liberar);
+// isLimitedSlotCompatible [V] Inventory.h:75. Cap duro no scan.
+bool typedForItem(Inventory* inv, GameData* gd) {
+    if (inv == 0 || gd == 0) {
+        return false;
+    }
+    lektor<InventorySection*>& secs = inv->getAllSections();
+    uint32_t n = secs.size();
+    if (n > 32) {
+        n = 32;
+    }
+    for (uint32_t i = 0; i < n; ++i) {
+        InventorySection* s = secs[i];
+        if (s != 0 && s->getVeryLimitedSlot().size() > 0
+            && s->isLimitedSlotCompatible(gd)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 // A estacao declara o item como excedente? (getItemsWeWantRidOf; padrao de
 // leitura+free do SnapshotBuilder). Fonte com excedente e prioridade: tirar
@@ -576,7 +587,7 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
         DemandCand& dc = demands[di];
         Ogre::Vector3 dpos(dc.sx, dc.sy, dc.sz);
         SourceCand src; src.count = 0; src.surplus = false;
-        DestCand dst; dst.d2Demand = -1.0; dst.holds = false;
+        DestCand dst; dst.d2Demand = -1.0; dst.tier = 0;
         int unitsInStorages = 0;
         GameData* itemGD = 0;
 
@@ -677,18 +688,24 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             if (inv == 0 || itemGD == 0 || !inv->hasRoomForItem(itemGD)) {
                 continue;
             }
-            // Duas camadas: deposito que JA guarda este item (tipo certo de
-            // armazem) vence sempre; dentro da camada, o mais perto da
-            // demanda. hasRoomForItem sozinho aceita secao generica de
-            // qualquer movel (evidencia 16/07: agua num armario de besta).
-            bool holds = countBySid(inv, dc.itemSid) > 0;
+            // Tres camadas: armazem TIPADO p/ o item (secao limitada
+            // compativel; vale mesmo VAZIO) > deposito que ja guarda o item
+            // > qualquer um com espaco. hasRoomForItem sozinho aceita secao
+            // generica de qualquer movel (evidencia 16/07: agua em armario
+            // de besta). Dentro da camada, o mais perto da demanda.
+            int tier = 0;
+            if (typedForItem(inv, itemGD)) {
+                tier = 2;
+            } else if (countBySid(inv, dc.itemSid) > 0) {
+                tier = 1;
+            }
             Ogre::Vector3 p = b->getPosition();
             double d2 = dist2(p, dpos);
             bool better;
             if (dst.d2Demand < 0.0) {
                 better = true;
-            } else if (holds != dst.holds) {
-                better = holds;
+            } else if (tier != dst.tier) {
+                better = tier > dst.tier;
             } else {
                 better = d2 < dst.d2Demand;
             }
@@ -697,7 +714,7 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
                 dst.name = b->getName();
                 dst.x = p.x; dst.y = p.y; dst.z = p.z;
                 dst.d2Demand = d2;
-                dst.holds = holds;
+                dst.tier = tier;
             }
         }
         if (dst.d2Demand < 0.0) {
@@ -810,6 +827,7 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
         g_plan.dstUid = dst.uid;   g_plan.dstName = dst.name;
         g_plan.demandUid = dc.stationUid;
         g_plan.demandName = dc.stationName;
+        g_plan.haulerHand = hand(hauler);
         g_plan.haulerName = hauler->getName();
         g_plan.srcX = src.x; g_plan.srcY = src.y; g_plan.srcZ = src.z;
         g_plan.dstX = dst.x; g_plan.dstY = dst.y; g_plan.dstZ = dst.z;
@@ -825,7 +843,9 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
           << ", " << src.count << " disponiveis"
           << (src.surplus ? ", EXCEDENTE declarado" : ", buffer de producao")
           << ") -> deposito \"" << dst.name << "\" (" << dst.uid
-          << (dst.holds ? ", ja guarda o item" : ", so tem espaco")
+          << (dst.tier == 2 ? ", TIPADO p/ o item"
+                            : (dst.tier == 1 ? ", ja guarda o item"
+                                             : ", so tem espaco"))
           << ") | demanda: \"" << dc.stationName
           << "\" | carregador: \"" << g_plan.haulerName
           << "\" | reservas OK; a caminho da fonte.";
@@ -924,8 +944,12 @@ void poc029CarregadorTick(GameWorld* world) {
         return;
     }
 
-    // ---- Haul ativo: re-resolver o carregador PELO NOME (nunca ponteiro) ----
-    Character* w = findCharByName(world, g_plan.haulerName);
+    // ---- Haul ativo: re-resolver o carregador pelo HAND (identidade exata;
+    // ponteiro tick-scoped, nunca guardado) ----
+    Character* w = 0;
+    if (g_plan.haulerHand.isValid()) {
+        w = g_plan.haulerHand.getCharacter();
+    }
     if (w == 0 || !eligible(w)) {
         abortHaul("carregador indisponivel (sumiu/KO/morto)",
                   taskKeyOf(g_plan.demandUid, g_plan.itemSid));

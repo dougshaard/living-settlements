@@ -143,14 +143,18 @@ void runPocRound(GameWorld* world, float accumulated) {
             diag::error("LIMPEZA de cargos lancou excecao C++ -- abortada");
         }
     }
-    if (LS_ENABLE_ORGANIZER || pocEnv().orchestrator) {
+    // Enquanto uma limpeza esta em curso (clearJobs armado), organizador e
+    // guarnicao PAUSAM: senao dao cargo a quem acabou de ser limpo e a rodada
+    // seguinte da limpeza apaga (churn observado 17/07 num roster de 792
+    // cargos, 4 rodadas). A limpeza desarma sozinha ao concluir.
+    if ((LS_ENABLE_ORGANIZER || pocEnv().orchestrator) && !pocEnv().clearJobs) {
         try {
             pocs::poc025OrganizadorTick(world);
         } catch (...) {
             diag::error("ORGANIZADOR lancou excecao C++ -- abortado");
         }
     }
-    if (pocEnv().garrison) {
+    if (pocEnv().garrison && !pocEnv().clearJobs) {
         try {
             pocs::poc028GuarnicaoTick(world);
         } catch (...) {
