@@ -72,6 +72,8 @@ bool readPocFile(PocEnvState& st) {
             st.orchestrator = (v == "1");
         } else if (k == "LS_HAUL") {
             st.haul = (v == "1");
+        } else if (k == "LS_MEDIC") {
+            st.medicRole = (v == "1");
         } else if (k == "LS_POC_REVERT") {
             st.revert = (v == "1");
         } else if (k == "LS_POC_WORKER") {
@@ -112,6 +114,10 @@ const PocEnvState& pocEnv() {
         v = readEnv("LS_HAUL");
         if (!v.empty()) {
             g_state.haul = (v == "1");
+        }
+        v = readEnv("LS_MEDIC");
+        if (!v.empty()) {
+            g_state.medicRole = (v == "1");
         }
         v = readEnv("LS_POC_REVERT");
         if (!v.empty()) {
@@ -159,6 +165,7 @@ void logPocEnv() {
       << " GUARNICAO=" << (e.garrison ? "ON" : "off")
       << " ORQUESTRADOR=" << (e.orchestrator ? "ON" : "off")
       << " CARREGADOR=" << (e.haul ? "ON" : "off")
+      << " MEDICOS=" << (e.medicRole ? "ON" : "off")
       << " REVERT=" << (e.revert ? "ON" : "off")
       << " worker=" << (e.worker.empty() ? std::string("(nenhum)")
                                          : "\"" + e.worker + "\"")
@@ -166,7 +173,8 @@ void logPocEnv() {
                                                : "\"" + e.medWorker + "\"")
       << " torre=" << (e.turretUid.empty() ? std::string("(mais proxima)")
                                            : e.turretUid);
-    if (e.medEnabled || e.turEnabled || e.garrison || e.orchestrator || e.haul) {
+    if (e.medEnabled || e.turEnabled || e.garrison || e.orchestrator || e.haul
+        || e.medicRole) {
         diag::milestone(s.str());
     } else {
         diag::log(s.str()); // tudo OFF: linha comum (estado normal da DLL)

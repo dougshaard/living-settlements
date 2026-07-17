@@ -16,6 +16,7 @@
 #include "pocs/Poc028_Guarnicao.h"
 #include "pocs/Poc029_Carregador.h"
 #include "pocs/Poc030_LimparCargos.h"
+#include "pocs/Poc031_Medicos.h"
 #include "core/PocEnv.h"
 
 #include <core/Functions.h>   // KenshiLib::AddHook / GetRealAddress
@@ -147,6 +148,15 @@ void runPocRound(GameWorld* world, float accumulated) {
     // guarnicao PAUSAM: senao dao cargo a quem acabou de ser limpo e a rodada
     // seguinte da limpeza apaga (churn observado 17/07 num roster de 792
     // cargos, 4 rodadas). A limpeza desarma sozinha ao concluir.
+    // Medicos ANTES do orquestrador: o papel reivindica os melhores
+    // candidatos (kit/skill) antes da producao consumir os livres.
+    if (pocEnv().medicRole && !pocEnv().clearJobs) {
+        try {
+            pocs::poc031MedicosTick(world);
+        } catch (...) {
+            diag::error("MEDICOS lancou excecao C++ -- abortado");
+        }
+    }
     if ((LS_ENABLE_ORGANIZER || pocEnv().orchestrator) && !pocEnv().clearJobs) {
         try {
             pocs::poc025OrganizadorTick(world);

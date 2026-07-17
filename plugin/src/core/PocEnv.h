@@ -45,6 +45,8 @@ struct PocEnvState {
                               // do roster (o orquestrador recompoe). Runtime-
                               // only DE PROPOSITO: acao destrutiva nunca vem
                               // de arquivo (dispararia em todo boot)
+    bool        medicRole;    // LS_MEDIC == "1": papel MEDICO reconciliado
+                              // (Poc031; repoe N medicos por feridos/kit/skill)
     bool        revert;       // LS_POC_REVERT == "1"
     std::string worker;       // LS_POC_WORKER (nome exato; "" = ausente)
     std::string medWorker;    // LS_POC_MED_WORKER; vazio = cai em worker.
@@ -57,7 +59,7 @@ struct PocEnvState {
     std::string garrisonExclude; // LS_GARRISON_EXCLUDE=uid1,uid2
     PocEnvState() : medEnabled(false), turEnabled(false), garrison(false),
                     orchestrator(false), haul(false), haulOnce(false),
-                    clearJobs(false), revert(false) {}
+                    clearJobs(false), medicRole(false), revert(false) {}
 };
 
 // Snapshot cacheado do ambiente (primeira chamada le; depois so retorna).

@@ -52,7 +52,7 @@ void refreshCaptions() {
                                              : "Carregador: 1 ciclo");
     }
     if (g_btnMed != 0) {
-        g_btnMed->setCaption(label("Medico (obs)", e.medEnabled));
+        g_btnMed->setCaption(label("Medicos", e.medicRole));
     }
     if (g_btnTur != 0) {
         g_btnTur->setCaption(label("Torre (obs)", e.turEnabled));
@@ -84,9 +84,9 @@ void onToggle(MyGUI::WidgetPtr sender) {
         what = "Carregador (1 ciclo)";
         now = true;
     } else if (sender == g_btnMed) {
-        e.medEnabled = !e.medEnabled;
-        what = "Medico (obs)";
-        now = e.medEnabled;
+        e.medicRole = !e.medicRole;
+        what = "Medicos (papel)";
+        now = e.medicRole;
     } else if (sender == g_btnTur) {
         e.turEnabled = !e.turEnabled;
         what = "Torre (obs)";
