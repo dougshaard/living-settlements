@@ -8,6 +8,7 @@
 // servem de LINHAS DE TEXTO (renderizam legenda; nenhum StaticText a adivinhar).
 #include "ui/BuildingPanel.h"
 #include "core/Diagnostics.h"
+#include "core/Porters.h"
 
 #include <kenshi/GameWorld.h>
 #include <kenshi/PlayerInterface.h>
@@ -34,10 +35,53 @@ static const int PB_ROWS = 4;
 
 MyGUI::Window* g_win = 0;
 MyGUI::Button* g_row[PB_ROWS] = { 0 };
+MyGUI::Button* g_postBtn = 0;
 bool           g_built = false;
 std::string    g_lastKey;   // predio tratado por ultimo (mostrado OU fechado)
 std::string    g_closedKey; // predio que o jogador FECHOU (fica oculto ate ele
                             // selecionar outro) -- conserta o "impossivel fechar"
+// Predio em exibicao (p/ o botao de declarar posto agir sem re-ler o mundo).
+std::string    g_curKey, g_curName;
+float          g_curX = 0, g_curY = 0, g_curZ = 0;
+
+// Chave estavel do predio: uid quando ha; senao a POSICAO (predios
+// estruturais nao tem uid). Mesma regra em todo lugar que identifica predio.
+std::string buildingKey(Building* b) {
+    std::string key;
+    InstanceID* iid = b->getInstanceID();
+    if (iid != 0) {
+        key = iid->uid;
+    }
+    if (key.empty()) {
+        Ogre::Vector3 p = b->getPosition();
+        std::ostringstream k;
+        k << "pos:" << static_cast<int>(p.x) << "," << static_cast<int>(p.y)
+          << "," << static_cast<int>(p.z);
+        key = k.str();
+    }
+    return key;
+}
+
+void updatePostButton() {
+    if (g_postBtn == 0) {
+        return;
+    }
+    bool post = !g_curKey.empty() && core::isPost(g_curKey);
+    g_postBtn->setCaption(post ? "** POSTO DE CARREGADORES (remover) **"
+                               : "Declarar Posto de Carregadores");
+}
+
+void onPostToggle(MyGUI::WidgetPtr /*sender*/) {
+    if (g_curKey.empty()) {
+        return;
+    }
+    if (core::isPost(g_curKey)) {
+        core::undeclarePost(g_curKey);
+    } else {
+        core::declarePost(g_curKey, g_curName, g_curX, g_curY, g_curZ);
+    }
+    updatePostButton();
+}
 
 void onWindowButton(MyGUI::Window* sender, const std::string& button) {
     // Fechar por QUALQUER botao da barra (o skin CX so tem o X). NAO limpar
@@ -61,17 +105,23 @@ bool ensureBuilt() {
         return false; // ainda sem GUI (title screen nao construiu)
     }
     g_win = gui->createWidgetReal<MyGUI::Window>(
-        "Kenshi_WindowCX", 0.40f, 0.34f, 0.22f, 0.24f,
+        "Kenshi_WindowCX", 0.40f, 0.32f, 0.23f, 0.30f,
         MyGUI::Align::Default, "Window", "LSBuildingPanel");
     g_win->setCaption("Predio");
     g_win->eventWindowButtonPressed += MyGUI::newDelegate(onWindowButton);
     MyGUI::Widget* c = g_win->getClientWidget();
     for (int i = 0; i < PB_ROWS; ++i) {
         g_row[i] = c->createWidgetReal<MyGUI::Button>(
-            "Kenshi_Button1", 0.04f, 0.03f + 0.235f * i, 0.92f, 0.20f,
+            "Kenshi_Button1", 0.04f, 0.02f + 0.155f * i, 0.92f, 0.135f,
             MyGUI::Align::Default, "");
         g_row[i]->setCaption("");
     }
+    // Acao: declarar/remover este predio como Posto de Carregadores. E o 1o
+    // edificio ESPECIAL declarado (molde de quartel/hospital futuros).
+    g_postBtn = c->createWidgetReal<MyGUI::Button>(
+        "Kenshi_Button1", 0.04f, 0.66f, 0.92f, 0.28f,
+        MyGUI::Align::Default, "");
+    g_postBtn->eventMouseButtonClick += MyGUI::newDelegate(onPostToggle);
     g_win->setVisible(false);
     g_built = true;
     diag::milestone("PAINEL-PREDIO: janela criada (clique um edificio p/ abrir; "
@@ -105,6 +155,11 @@ void showFor(Building* b) {
         }
     }
 
+    // Guarda o predio corrente p/ o botao de posto agir sem re-ler o mundo.
+    g_curKey = buildingKey(b);
+    g_curName = name;
+    g_curX = p.x; g_curY = p.y; g_curZ = p.z;
+
     g_win->setCaption(name.empty() ? std::string("Predio") : name);
     {
         std::ostringstream s; s << "Nome: " << name;
@@ -130,6 +185,7 @@ void showFor(Building* b) {
         }
         g_row[3]->setCaption(s.str());
     }
+    updatePostButton();
     g_win->setVisible(true);
 
     std::ostringstream log;
@@ -156,26 +212,9 @@ void pollBuildingSelection(GameWorld* world) {
     if (b == 0) {
         return; // clique nao foi num predio -> nada a fazer (janela fica)
     }
-    // CHAVE de identidade do predio. Achado in-game 17/07: predios
-    // ESTRUTURAIS ("Casa em L") NAO tem uid -- so os objetos/moveis colocados
-    // (camas, maquinas) tem. E o hand::toString() e instavel entre frames
-    // (re-disparava a mesma casa). A POSICAO e o fallback estavel: predio nao
-    // se move; casas distintas ficam em pontos distintos. (Vale tambem p/ o
-    // futuro sistema de declaracao por predio: uid quando ha, senao posicao.)
-    std::string key;
-    {
-        InstanceID* iid = b->getInstanceID();
-        if (iid != 0) {
-            key = iid->uid;
-        }
-    }
-    if (key.empty()) {
-        Ogre::Vector3 p = b->getPosition();
-        std::ostringstream k;
-        k << "pos:" << static_cast<int>(p.x) << "," << static_cast<int>(p.y)
-          << "," << static_cast<int>(p.z);
-        key = k.str();
-    }
+    // CHAVE de identidade do predio (uid; senao posicao -- estruturais nao tem
+    // uid). Mesma regra do buildingKey usado ao declarar posto.
+    std::string key = buildingKey(b);
     if (key == g_lastKey) {
         return; // mesmo predio ja tratado (mostrado ou fechado) -> nada a fazer
     }

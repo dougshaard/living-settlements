@@ -30,12 +30,26 @@ class Character;
 namespace ls {
 namespace core {
 
+// POSTO DE CARREGADOR (decisao do dono 17/07): um PREDIO declarado onde
+// carregadores esperam tarefas. Chave = uid do predio, ou "pos:x,y,z" quando
+// o predio estrutural nao tem uid (achado in-game). O carregador ocioso volta
+// ao posto -> fica pre-posicionado; "livre mais perto da fonte" ja escolhe o
+// posto certo. E o 1o edificio ESPECIAL declarado (molde de quartel/hospital).
+struct PostEntry {
+    std::string key;
+    std::string name;
+    float       x, y, z;
+    PostEntry() : x(0), y(0), z(0) {}
+};
+
 // Uma linha do roster p/ a GUI (snapshot barato refrescado pelo tick;
 // a GUI NUNCA le o mundo diretamente -- so este espelho).
 struct RosterEntry {
     hand        h;
     std::string name;
     bool        porter;
+    std::string postKey;  // posto atribuido ("" = sem posto)
+    std::string postName; // nome do posto (p/ a GUI)
     RosterEntry() : porter(false) {}
 };
 
@@ -46,6 +60,25 @@ bool isPorter(Character* c);
 void togglePorter(const hand& h);
 
 int porterCount();
+
+// ---- Postos ----
+// Declara/remove um predio como posto (idempotente; chave = uid ou pos).
+void declarePost(const std::string& key, const std::string& name,
+                 float x, float y, float z);
+void undeclarePost(const std::string& key);
+bool isPost(const std::string& key);
+int  postCount();
+const std::vector<PostEntry>& posts();
+
+// ---- Atribuicao carregador -> posto (manual; decisao do dono) ----
+// Cicla o carregador pelos postos declarados: sem-posto -> posto1 -> ... ->
+// sem-posto. Picker manual simples (poucos postos). No-op se h invalido.
+void cyclePorterPost(const hand& h);
+// Chave/nome do posto do carregador ("" se nenhum).
+std::string porterPostKey(const hand& h);
+std::string porterPostName(const hand& h);
+// Posicao do posto do carregador; false se sem posto/posto sumiu.
+bool porterPostPos(const hand& h, float& x, float& y, float& z);
 
 // Refresca o espelho do roster (tick, main thread; cap duro; ignora
 // animais). Nao-op se o mundo/roster nao esta de pe.

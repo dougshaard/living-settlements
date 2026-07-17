@@ -41,7 +41,8 @@ MyGUI::Button* g_btnPorters = 0;
 // mod -- nenhuma leitura/escrita de jogo no clique (padrao do painel v1).
 static const int PORTER_PAGE = 10;
 MyGUI::Window* g_porterWin = 0;
-MyGUI::Button* g_porterBtn[PORTER_PAGE] = { 0 };
+MyGUI::Button* g_porterBtn[PORTER_PAGE] = { 0 };  // nome + [C] (alterna declarar)
+MyGUI::Button* g_porterPostBtn[PORTER_PAGE] = { 0 }; // posto (cicla atribuicao)
 MyGUI::Button* g_porterPrev = 0;
 MyGUI::Button* g_porterNext = 0;
 int g_porterPage = 0;
@@ -65,8 +66,9 @@ void refreshPorterWindow() {
     }
     {
         std::ostringstream cap;
-        cap << "Carregadores " << core::porterCount() << " (pag "
-            << (g_porterPage + 1) << "/" << pages << ")";
+        cap << "Carregadores " << core::porterCount() << " / postos "
+            << core::postCount() << " (pag " << (g_porterPage + 1) << "/"
+            << pages << ")";
         g_porterWin->setCaption(cap.str());
     }
     for (int i = 0; i < PORTER_PAGE; ++i) {
@@ -78,9 +80,24 @@ void refreshPorterWindow() {
             g_porterIdx[i] = idx;
             g_porterBtn[i]->setCaption(
                 std::string(r[idx].porter ? "[C] " : "     ") + r[idx].name);
+            if (g_porterPostBtn[i] != 0) {
+                // Botao de posto: so faz sentido p/ quem e carregador.
+                std::string pcap;
+                if (!r[idx].porter) {
+                    pcap = "-";
+                } else if (r[idx].postName.empty()) {
+                    pcap = "sem posto";
+                } else {
+                    pcap = r[idx].postName;
+                }
+                g_porterPostBtn[i]->setCaption(pcap);
+            }
         } else {
             g_porterIdx[i] = -1;
             g_porterBtn[i]->setCaption(n == 0 ? "(carregue um mundo)" : "-");
+            if (g_porterPostBtn[i] != 0) {
+                g_porterPostBtn[i]->setCaption("");
+            }
         }
     }
 }
@@ -92,6 +109,20 @@ void onPorterRow(MyGUI::WidgetPtr sender) {
             int idx = g_porterIdx[i];
             if (idx >= 0 && idx < static_cast<int>(r.size())) {
                 core::togglePorter(r[idx].h);
+                refreshPorterWindow();
+            }
+            return;
+        }
+    }
+}
+
+void onPorterPost(MyGUI::WidgetPtr sender) {
+    const std::vector<core::RosterEntry>& r = core::roster();
+    for (int i = 0; i < PORTER_PAGE; ++i) {
+        if (sender == g_porterPostBtn[i]) {
+            int idx = g_porterIdx[i];
+            if (idx >= 0 && idx < static_cast<int>(r.size()) && r[idx].porter) {
+                core::cyclePorterPost(r[idx].h); // cicla posto declarado -> ...
                 refreshPorterWindow();
             }
             return;
@@ -228,9 +259,10 @@ TitleScreen* titleHook(TitleScreen* thisptr) {
     g_btnWipe     = makeToggle(c, 0.760f, "LSBtnWipe");
     g_btnPorters  = makeToggle(c, 0.885f, "LSBtnPorters");
 
-    // Janela "Carregadores" (aba de declaracao; comeca oculta).
+    // Janela "Carregadores" (aba de declaracao; comeca oculta). Duas colunas
+    // por linha: nome (alterna declarar) + posto (cicla atribuicao).
     g_porterWin = gui->createWidgetReal<MyGUI::Window>(
-        "Kenshi_WindowCX", 0.56f, 0.22f, 0.21f, 0.50f,
+        "Kenshi_WindowCX", 0.54f, 0.22f, 0.23f, 0.50f,
         MyGUI::Align::Default, "Window", "LSPorterWindow");
     g_porterWin->setCaption("Carregadores");
     {
@@ -238,9 +270,13 @@ TitleScreen* titleHook(TitleScreen* thisptr) {
         for (int i = 0; i < PORTER_PAGE; ++i) {
             g_porterIdx[i] = -1;
             g_porterBtn[i] = pc->createWidgetReal<MyGUI::Button>(
-                "Kenshi_Button1", 0.03f, 0.010f + 0.082f * i, 0.94f, 0.075f,
+                "Kenshi_Button1", 0.03f, 0.010f + 0.082f * i, 0.60f, 0.075f,
                 MyGUI::Align::Default, "");
             g_porterBtn[i]->eventMouseButtonClick += MyGUI::newDelegate(onPorterRow);
+            g_porterPostBtn[i] = pc->createWidgetReal<MyGUI::Button>(
+                "Kenshi_Button1", 0.64f, 0.010f + 0.082f * i, 0.33f, 0.075f,
+                MyGUI::Align::Default, "");
+            g_porterPostBtn[i]->eventMouseButtonClick += MyGUI::newDelegate(onPorterPost);
         }
         g_porterPrev = pc->createWidgetReal<MyGUI::Button>(
             "Kenshi_Button1", 0.03f, 0.845f, 0.45f, 0.10f,

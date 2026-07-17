@@ -203,6 +203,61 @@ std::string uidOf(Building* b) {
     return (iid != 0) ? iid->uid : std::string();
 }
 
+double dist2(const Ogre::Vector3& a, const Ogre::Vector3& b);
+
+// IDLE-RETURN (decisao do dono 17/07): carregador ocioso volta ao POSTO
+// atribuido e espera -> fica pre-posicionado (e "livre mais perto da fonte"
+// ja escolhe o posto certo). So mexe em quem esta OCIOSO e LONGE do posto;
+// nunca no carregador da viagem ativa, nem sob ordem sua. Cap por rodada.
+void returnIdlePortersToPosts(GameWorld* world, PlayerInterface* pl,
+                              core::CoordMode mode, const core::WriteFence& fence) {
+    static const int  RET_MAX_EMIT = 3;
+    static const float RET_AT_POST_M = 8.0f; // ja no posto: nao reenviar
+    lektor<Character*>& chars = pl->playerCharacters;
+    uint32_t n = chars.size();
+    if (n > HAUL_MAX_CHARS) {
+        n = HAUL_MAX_CHARS;
+    }
+    int emitted = 0;
+    for (uint32_t i = 0; i < n && emitted < RET_MAX_EMIT; ++i) {
+        Character* c = chars[i];
+        if (c == 0 || !core::isPorter(c) || !eligible(c)) {
+            continue;
+        }
+        // Nunca o carregador da viagem ativa.
+        if (g_plan.active && g_plan.haulerHand.isValid()
+            && g_plan.haulerHand.getCharacter() == c) {
+            continue;
+        }
+        // Autoridade do jogador e sagrada.
+        hand sel = pl->selectedCharacter;
+        if (sel.isValid() && sel.getCharacter() == c) {
+            continue;
+        }
+        CharBody* body = c->getBody();
+        if (body == 0 || !body->isIdle()) {
+            continue; // so quem esta parado (quem ja anda p/ casa nao e ocioso)
+        }
+        Tasker* action = body->getCurrentAction();
+        if (action != 0
+            && static_cast<int>(action->priority) >= static_cast<int>(TP_OBEDIENCE)) {
+            continue;
+        }
+        float px, py, pz;
+        if (!core::porterPostPos(hand(c), px, py, pz)) {
+            continue; // sem posto atribuido: fica onde esta
+        }
+        Ogre::Vector3 post(px, py, pz);
+        if (dist2(c->getPosition(), post)
+                <= static_cast<double>(RET_AT_POST_M) * RET_AT_POST_M) {
+            continue; // ja no posto
+        }
+        if (adapters::emitPreposition(mode, fence, c, post) == adapters::EMIT_OK) {
+            ++emitted;
+        }
+    }
+}
+
 double dist2(const Ogre::Vector3& a, const Ogre::Vector3& b) {
     double dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
     return dx * dx + dy * dy + dz * dz;
@@ -954,6 +1009,13 @@ void poc029CarregadorTick(GameWorld* world) {
         abortHaul("reserva perdida (recurso sumiu por fora)",
                   taskKeyOf(g_plan.demandUid, g_plan.itemSid));
         return;
+    }
+
+    // Ocioso volta ao posto (pre-posicionamento): so com transporte auto ligado
+    // e algum posto declarado. Roda mesmo com uma viagem ativa (os OUTROS
+    // carregadores esperam em casa enquanto um trabalha).
+    if (env.haul && core::postCount() > 0) {
+        returnIdlePortersToPosts(world, pl, mode, fence);
     }
 
     // Ancora da base (padrao das POCs).
