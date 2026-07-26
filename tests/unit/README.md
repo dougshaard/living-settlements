@@ -36,5 +36,6 @@ Saída esperada: `N verificacoes, 0 falhas` + `OK` (exit code 0).
 O contrato de unicidade (um lease por par recurso/dono), a guarda de overflow e o
 rollback sob exceção no commit são os invariantes centrais do gerenciador, e estão
 cobertos pelos casos acima. Os demais arquivos (`test_workcore`, `test_taskboard`,
-`test_intent`, `test_assignment`) cobrem o resto do núcleo — modelo de dados, quadro de
-tarefas, pool de trabalhadores, debounce, ledger de intenções e a atribuição.
+`test_intent`, `test_assignment`, `test_stockpolicy`, `test_writefence`) cobrem o resto
+do núcleo — modelo de dados, quadro de tarefas, pool de trabalhadores, debounce, ledger
+de intenções, atribuição, política de estoque e a cerca de escrita.

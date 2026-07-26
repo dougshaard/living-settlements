@@ -9,9 +9,12 @@ logística puxada, política de estoque e distribuição de tarefas na colônia 
 Roda como plugin nativo, carregado pelo [RE_Kenshi](https://github.com/BFrizzleFoShizzle/RE_Kenshi)
 com os bindings do [KenshiLib](https://github.com/KenshiReclaimer/KenshiLib).
 
-> **Em desenvolvimento.** Por enquanto o mod só *lê* o jogo e raciocina em segundo
-> plano — calcula o que faria, mas ainda não dá nenhuma ordem. A escrita fica desligada
-> até a segurança contra corrupção de save estar comprovada. Veja o estado abaixo.
+> **Em desenvolvimento ativo.** O mod já lê o assentamento *e age*: aloca operadores,
+> guarnece torres, mantém médicos de plantão e dirige o transporte de recursos. Cada
+> recurso tem o próprio interruptor — num painel dentro do jogo, ao vivo, ou num
+> arquivo de configuração simples — e toda escrita passa por um único emissor, atrás
+> de uma cerca de segurança que respeita save/load. A regra de casa: você declara o
+> que quer, o mod mantém.
 
 ## Estado
 
@@ -20,8 +23,11 @@ com os bindings do [KenshiLib](https://github.com/KenshiReclaimer/KenshiLib).
 | Núcleo de reservas (código puro, testável) | Pronto — coberto por testes de unidade que rodam em qualquer compilador, sem o jogo |
 | Plugin (carga, checagem de versão, tick na main thread, log) | Compila e roda no jogo (Release / x64) |
 | Leitura da colônia (personagens, cargos, postos, produção, ameaças) | Validada em jogo (Kenshi 1.0.65 via RE_Kenshi) |
-| Coordenação de trabalho (quadro de tarefas, pool, atribuição) | Rodando em modo sombra — calcula as decisões e registra no log, mas não emite |
-| Emissão de ordens (escrita no jogo) | Implementada e desligada por padrão, atrás de um gate de segurança |
+| Orquestrador de produção | Ativo: ociosos viram operadores dos postos mais necessitados, por necessidade e habilidade, sem nunca remover cargos seus |
+| Papéis que se mantêm sozinhos | Guarnição de torres e plantão médico se recompõem quando alguém cai, é limpo ou some |
+| Logística dirigida | Você declara os carregadores (aba própria) e os postos onde esperam (clicando num edifício); o transporte atende falta crítica com reservas atômicas e contagem de conservação nas duas pontas |
+| Painel in-game | Janela de controle com liga/desliga ao vivo, limpeza de cargos em um clique e painel por edifício |
+| Emissão de ordens (escrita no jogo) | Ativa por feição, atrás da cerca de segurança (modo, save/load, filas de thread) |
 
 ## Requisitos
 
