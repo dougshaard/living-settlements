@@ -205,6 +205,54 @@ std::string uidOf(Building* b) {
 
 double dist2(const Ogre::Vector3& a, const Ogre::Vector3& b);
 
+// DEDICAR CARREGADORES (fix 17/07 "todos ocupados demais"): declarar
+// carregador tirava-o dos cargos NOVOS (orquestrador/guarnicao/medico) mas
+// os cargos ANTIGOS da campanha ficavam -> o carregador seguia operando
+// maquina, nunca ociava, nunca ia ao posto. Um carregador e papel DEDICADO:
+// aqui limpamos os permajobs dele (atras da cerca, capado). Reversivel: ao
+// des-declarar, o orquestrador pode reempregar. Nunca mexe no carregador da
+// viagem ativa. Idempotente (nada a fazer quando ja limpo).
+void dedicatePorters(GameWorld* world, PlayerInterface* pl,
+                     core::CoordMode mode, const core::WriteFence& fence) {
+    static const int DED_MAX_EMIT  = 8;  // remocoes por rodada (todos os carreg.)
+    static const int DED_MAX_SLOTS = 64; // guarda por char
+    lektor<Character*>& chars = pl->playerCharacters;
+    uint32_t n = chars.size();
+    if (n > HAUL_MAX_CHARS) {
+        n = HAUL_MAX_CHARS;
+    }
+    int emitted = 0;
+    for (uint32_t i = 0; i < n && emitted < DED_MAX_EMIT; ++i) {
+        Character* c = chars[i];
+        if (c == 0 || !core::isPorter(c) || !eligible(c)) {
+            continue;
+        }
+        if (g_plan.active && g_plan.haulerHand.isValid()
+            && g_plan.haulerHand.getCharacter() == c) {
+            continue; // nao mexer em quem esta na viagem
+        }
+        if (c->getPermajobCount() <= 0) {
+            continue; // ja dedicado (sem cargos)
+        }
+        int removed = 0, guard = 0;
+        while (c->getPermajobCount() > 0 && guard < DED_MAX_SLOTS
+               && emitted < DED_MAX_EMIT) {
+            if (adapters::emitRemovePermajob(mode, fence, c, 0)
+                    != adapters::EMIT_OK) {
+                break;
+            }
+            ++removed; ++emitted; ++guard;
+        }
+        if (removed > 0) {
+            std::ostringstream s;
+            s << "CARREGADOR dedicado: \"" << c->getName() << "\" liberou "
+              << removed << " cargo(s) de producao -- agora e so transporte "
+              << "(volta ao posto quando ocioso).";
+            diag::milestone(s.str());
+        }
+    }
+}
+
 // IDLE-RETURN (decisao do dono 17/07): carregador ocioso volta ao POSTO
 // atribuido e espera -> fica pre-posicionado (e "livre mais perto da fonte"
 // ja escolhe o posto certo). So mexe em quem esta OCIOSO e LONGE do posto;
@@ -255,6 +303,12 @@ void returnIdlePortersToPosts(GameWorld* world, PlayerInterface* pl,
         if (adapters::emitPreposition(mode, fence, c, post) == adapters::EMIT_OK) {
             ++emitted;
         }
+    }
+    if (emitted > 0) {
+        std::ostringstream s;
+        s << "POSTO: " << emitted << " carregador(es) ocioso(s) enviado(s) de "
+          << "volta ao posto (pre-posicionamento).";
+        diag::milestone(s.str());
     }
 }
 
@@ -1011,9 +1065,13 @@ void poc029CarregadorTick(GameWorld* world) {
         return;
     }
 
-    // Ocioso volta ao posto (pre-posicionamento): so com transporte auto ligado
-    // e algum posto declarado. Roda mesmo com uma viagem ativa (os OUTROS
-    // carregadores esperam em casa enquanto um trabalha).
+    // Dedicar carregadores (liberar cargos de producao antigos) e mandar os
+    // ociosos ao posto -- so com transporte auto ligado. Dedicar roda mesmo
+    // sem posto declarado (carregador dedicado deve ficar livre de qualquer
+    // forma); voltar-ao-posto exige um posto.
+    if (env.haul && core::porterCount() > 0) {
+        dedicatePorters(world, pl, mode, fence);
+    }
     if (env.haul && core::postCount() > 0) {
         returnIdlePortersToPosts(world, pl, mode, fence);
     }
