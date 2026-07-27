@@ -316,6 +316,9 @@ void togglePorter(const hand& h) {
 }
 
 int porterCount() {
+    loadDecls(); // o botao do painel pergunta ANTES do 1o refresh do roster
+                 // (tela de titulo); sem isto mostrava "Carregadores: 0" com
+                 // 10 persistidos (bug real 27/07 -- GUI mentindo, dir.20)
     return static_cast<int>(g_porters.size())
          + static_cast<int>(g_pending.size());
 }

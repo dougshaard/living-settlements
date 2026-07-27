@@ -18,6 +18,7 @@
 #include "pocs/Poc030_LimparCargos.h"
 #include "pocs/Poc031_Medicos.h"
 #include "ui/BuildingPanel.h"
+#include "ui/ControlPanel.h"
 #include "core/PocEnv.h"
 #include "core/Porters.h"
 
@@ -97,6 +98,14 @@ void runPocRound(GameWorld* world, float accumulated) {
     } catch (...) {
         diag::error("espelho do roster lancou excecao C++ -- ignorado");
     }
+    // Rotulos do painel sempre frescos (dir.20: GUI nao mente; o clique
+    // deixou de ser a unica atualizacao -- "Carregadores: 0" com 10
+    // persistidos foi bug real de 27/07).
+    try {
+        ui::refreshControlPanelCaptions();
+    } catch (...) {
+        diag::error("refresh do painel lancou excecao C++ -- ignorado");
+    }
 
     // try/catch cobre exceções C++ do nosso próprio código (std::bad_alloc
     // etc). NÃO captura access violation do jogo (isso exigiria /EHa);
@@ -160,12 +169,16 @@ void runPocRound(GameWorld* world, float accumulated) {
     // cargos, 4 rodadas). A limpeza desarma sozinha ao concluir.
     // Medicos ANTES do orquestrador: o papel reivindica os melhores
     // candidatos (kit/skill) antes da producao consumir os livres.
+    // Os flush() apos cada bloco sao MIGALHAS DE PAO: um crash silencioso no
+    // meio da rodada (27/07: CTD sem dump) perde o buffer -- com flush por
+    // bloco, o ultimo bloco presente no log aponta o culpado.
     if (pocEnv().medicRole && !pocEnv().clearJobs) {
         try {
             pocs::poc031MedicosTick(world);
         } catch (...) {
             diag::error("MEDICOS lancou excecao C++ -- abortado");
         }
+        diag::flush();
     }
     if ((LS_ENABLE_ORGANIZER || pocEnv().orchestrator) && !pocEnv().clearJobs) {
         try {
@@ -173,6 +186,7 @@ void runPocRound(GameWorld* world, float accumulated) {
         } catch (...) {
             diag::error("ORGANIZADOR lancou excecao C++ -- abortado");
         }
+        diag::flush();
     }
     if (pocEnv().garrison && !pocEnv().clearJobs) {
         try {
@@ -180,6 +194,7 @@ void runPocRound(GameWorld* world, float accumulated) {
         } catch (...) {
             diag::error("GUARNICAO lancou excecao C++ -- abortada");
         }
+        diag::flush();
     }
     // Carregador: chamada INCONDICIONAL -- a POC decide (um haul ativo precisa
     // terminar/abortar mesmo com o toggle desligado no meio; ociosa sai barato).
@@ -188,6 +203,7 @@ void runPocRound(GameWorld* world, float accumulated) {
     } catch (...) {
         diag::error("CARREGADOR lancou excecao C++ -- abortado");
     }
+    diag::flush();
     // Fase A: POCs por toggles (default OFF; ver core/PocEnv.h). A checagem
     // fina (flag + worker + cerca) vive dentro de cada POC.
     if (!g_modCensusDone && (pocEnv().medEnabled || pocEnv().turEnabled

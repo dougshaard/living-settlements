@@ -16,6 +16,12 @@ namespace ui {
 // plugin (o mod segue funcional por poc.txt; so fica sem painel).
 bool installControlPanel();
 
+// Re-pinta os rotulos do painel com o estado corrente (contagens de
+// carregadores/postos incluidas). Chamado pelo tick a cada rodada: o rotulo
+// NUNCA pode mostrar numero velho (dir.20 -- GUI nao mente); clique deixou
+// de ser a unica coisa que atualiza. Barato; no-op se o painel nao existe.
+void refreshControlPanelCaptions();
+
 } // namespace ui
 } // namespace ls
 

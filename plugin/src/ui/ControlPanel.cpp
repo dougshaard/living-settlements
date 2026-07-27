@@ -372,6 +372,20 @@ TitleScreen* titleHook(TitleScreen* thisptr) {
 
 } // namespace
 
+void refreshControlPanelCaptions() {
+    if (g_btnOrch == 0) {
+        return; // painel ainda nao criado (antes da title screen)
+    }
+    refreshCaptions();
+    // Janelas abertas tambem se mantem frescas sem clique (dir.20).
+    if (g_porterWin != 0 && g_porterWin->getVisible()) {
+        refreshPorterWindow();
+    }
+    if (g_demandWin != 0 && g_demandWin->getVisible()) {
+        refreshDemandWindow();
+    }
+}
+
 bool installControlPanel() {
     if (KenshiLib::SUCCESS != KenshiLib::AddHook(
             KenshiLib::GetRealAddress(&TitleScreen::_CONSTRUCTOR),
