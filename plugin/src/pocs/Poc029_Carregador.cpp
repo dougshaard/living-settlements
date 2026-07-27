@@ -71,9 +71,12 @@ static const int      HAUL_MAX_STACK_MOVES  = 16;   // stacks movidos por transf
 static const int      HAUL_BATCH_MAX        = 5;    // REQ-LOG-004: lote seguro (unidades)
 static const double   HAUL_MAX_LOAD_RATIO   = 0.80; // nunca lotar o inventario (deadlock
                                                     // de fome reportado pelo dono)
-static const float    HAUL_ARRIVE_M         = 6.0f; // chegada = a menos de 6m do predio
-                                                    // (POC-011 confirmou <2m ao ar livre;
-                                                    // predio tem raio -> folga)
+static const float    HAUL_ARRIVE_M         = 12.0f; // chegada = a menos de 12m do CENTRO
+                                                    // do predio. Evidencia 27/07: fazenda
+                                                    // grande deixou o carregador a 6.4m e
+                                                    // o limiar de 6m nao disparou a coleta
+                                                    // (dist2=41.8 > 36) -- o char para na
+                                                    // BORDA, o centro fica longe.
 // Timeout por perna e por PROGRESSO, nao por tempo fixo: bases grandes tem
 // caminhadas de >1500m (evidencia 17/07: haul abortava a meio caminho com o
 // carregador ainda andando). So aborta se PARAR de se aproximar (pathing
@@ -1073,6 +1076,7 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             int avail = g_res.available(itemRes);
             batch = avail < HAUL_BATCH_MAX ? avail : HAUL_BATCH_MAX;
             if (batch <= 0) {
+                --g_seq; // numero de viagem nao gasto em tentativa negada
                 setCooldown(taskKeyOf(dc.stationUid, dc.itemSid), HAUL_DONE_COOLDOWN);
                 continue; // tudo desta fonte ja reservado por outra viagem
             }
@@ -1082,8 +1086,14 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             reqs.push_back(ls::domain::ReservationRequest(capRes, owner, 1, expiry));
             reqs.push_back(ls::domain::ReservationRequest(wrkRes, owner, 1, expiry));
             if (!g_res.acquireAtomic(reqs, now)) {
-                diag::log("HAUL: reserva atomica NEGADA (recurso ja tomado) -- "
-                          "proxima demanda.");
+                --g_seq; // idem: negada nao gasta numero nem merece linha por
+                         // linha (dezenas de demandas disputam o mesmo tanque)
+                if (throttle) {
+                    diag::log("HAUL: reserva(s) negada(s) nesta rodada (recursos "
+                              "ja tomados por viagens ativas) -- normal com "
+                              "multi-viagem; seguindo as proximas demandas.");
+                    g_lastLog = g_round;
+                }
                 setCooldown(taskKeyOf(dc.stationUid, dc.itemSid), HAUL_DONE_COOLDOWN);
                 continue;
             }

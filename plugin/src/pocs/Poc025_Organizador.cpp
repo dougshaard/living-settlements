@@ -18,6 +18,7 @@
 #include "pocs/Poc025_Organizador.h"
 #include "core/LsConfig.h"
 #include "core/PocEnv.h"
+#include "core/Porters.h"
 #include "core/Diagnostics.h"
 #include "core/LifecycleGate.h"
 #include "adapters/OrderEmitter.h"
@@ -267,6 +268,12 @@ void poc025OrganizadorTick(GameWorld* world) {
             }
             if (c->getPermajobCount() != 0) {
                 continue; // ja tem cargo (nosso desta sessao / pathing)
+            }
+            if (core::isPorter(c)) {
+                continue; // CARREGADOR declarado: pensamento isolado da
+                          // logistica (dir.17). Sem isto: cabo de guerra --
+                          // org emprega, dedicacao limpa, GOAP arranca o
+                          // carregador da viagem (bug real 27/07).
             }
             if (isSelectedByPlayer(pl, c)) {
                 ++skippedSelected; // R1: nao mexer em quem o jogador esta comandando
