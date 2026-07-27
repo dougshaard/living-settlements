@@ -24,6 +24,7 @@
 #include "pocs/Poc029_Carregador.h"
 #include "core/PocEnv.h"
 #include "core/Porters.h"
+#include "core/Demands.h"
 #include "core/Diagnostics.h"
 #include "core/LifecycleGate.h"
 #include "core/LsConfig.h"
@@ -114,14 +115,23 @@ struct HaulPlan {
     double        legBestDist2; // menor dist2 ja visto nesta perna (-1 = novo)
     unsigned long legStall;     // rodadas consecutivas SEM aproximar
     int         reEmits;
+    bool        topup;          // viagem de REPOSICAO (banda), nao de falta critica
+    unsigned long seq;          // numero da viagem (logs; multi-viagem)
     std::string owner;          // dono logico das reservas ("haul:<seq>")
     HaulPlan() : active(false), phase(HP_GO_SRC),
                  srcX(0), srcY(0), srcZ(0), dstX(0), dstY(0), dstZ(0),
                  batch(0), pickedUp(0), legStart(0), legBestDist2(-1.0),
-                 legStall(0), reEmits(0) {}
+                 legStall(0), reEmits(0), topup(false), seq(0) {}
 };
 
-HaulPlan      g_plan;
+// MULTI-VIAGEM: ate N hauls em paralelo, um carregador por viagem. As
+// reservas (por dono "haul:<seq>") ja isolam fonte/destino/carregador
+// entre planos; o planejador pula demandas e carregadores ja tomados.
+static const int HAUL_MAX_ACTIVE = 3;
+HaulPlan      g_plans[HAUL_MAX_ACTIVE];
+// Quadro de demandas da rodada (espelho p/ a aba Demandas da GUI).
+std::vector<std::string> g_demandLines;
+static const int HAUL_BOARD_MAX = 12;
 unsigned long g_round = 0;
 unsigned long g_lastLog = 0;
 unsigned long g_seq = 0;
@@ -133,6 +143,49 @@ std::map<std::string, unsigned long> g_cooldown; // taskKey -> rodada liberada
 bool eligible(Character* c) {
     return c != 0 && c->isAnimal() == 0 && !c->isDead() && !c->isUnconcious()
         && c->canTakePlayerOrdersAtThisTime();
+}
+
+int activePlanCount() {
+    int n = 0;
+    for (int i = 0; i < HAUL_MAX_ACTIVE; ++i) {
+        if (g_plans[i].active) {
+            ++n;
+        }
+    }
+    return n;
+}
+
+std::string taskKeyOf(const std::string& demandUid, const std::string& sid);
+
+// O char e o carregador de alguma viagem ativa? (nunca redespachar/mexer)
+bool porterOnTrip(Character* c) {
+    if (c == 0) {
+        return false;
+    }
+    for (int i = 0; i < HAUL_MAX_ACTIVE; ++i) {
+        if (g_plans[i].active && g_plans[i].haulerHand.isValid()
+            && g_plans[i].haulerHand.getCharacter() == c) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Ja existe viagem ativa para esta (estacao,item)? (dedup entre planos)
+bool demandActive(const std::string& taskKey) {
+    for (int i = 0; i < HAUL_MAX_ACTIVE; ++i) {
+        if (g_plans[i].active
+            && taskKeyOf(g_plans[i].demandUid, g_plans[i].itemSid) == taskKey) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void pushDemandLine(const std::string& s) {
+    if (static_cast<int>(g_demandLines.size()) < HAUL_BOARD_MAX) {
+        g_demandLines.push_back(s);
+    }
 }
 
 // Carregador candidato (decisao do dono 17/07): SO quem foi DECLARADO na
@@ -227,9 +280,8 @@ void dedicatePorters(GameWorld* world, PlayerInterface* pl,
         if (c == 0 || !core::isPorter(c) || !eligible(c)) {
             continue;
         }
-        if (g_plan.active && g_plan.haulerHand.isValid()
-            && g_plan.haulerHand.getCharacter() == c) {
-            continue; // nao mexer em quem esta na viagem
+        if (porterOnTrip(c)) {
+            continue; // nao mexer em quem esta em viagem
         }
         if (c->getPermajobCount() <= 0) {
             continue; // ja dedicado (sem cargos)
@@ -272,9 +324,8 @@ void returnIdlePortersToPosts(GameWorld* world, PlayerInterface* pl,
         if (c == 0 || !core::isPorter(c) || !eligible(c)) {
             continue;
         }
-        // Nunca o carregador da viagem ativa.
-        if (g_plan.active && g_plan.haulerHand.isValid()
-            && g_plan.haulerHand.getCharacter() == c) {
+        // Nunca um carregador em viagem ativa.
+        if (porterOnTrip(c)) {
             continue;
         }
         // Autoridade do jogador e sagrada.
@@ -424,7 +475,8 @@ void setCooldown(const std::string& key, unsigned long rounds) {
 
 // Estado terminal libera TUDO (task_lifecycle FAILED/CANCELLED; PRINC-005:
 // falha nunca deixa reserva presa). cooldownKey vazio = sem cooldown.
-void abortHaul(const std::string& reason, const std::string& cooldownKey) {
+void abortHaul(HaulPlan& g_plan, const std::string& reason,
+               const std::string& cooldownKey) {
     if (!g_plan.owner.empty()) {
         g_res.releaseOwner(g_plan.owner);
     }
@@ -432,7 +484,7 @@ void abortHaul(const std::string& reason, const std::string& cooldownKey) {
         setCooldown(cooldownKey, HAUL_FAIL_COOLDOWN);
     }
     std::ostringstream s;
-    s << "HAUL #" << g_seq << " ABORTADO (" << reason << "): \"" << g_plan.itemName
+    s << "HAUL #" << g_plan.seq << " ABORTADO (" << reason << "): \"" << g_plan.itemName
       << "\" " << g_plan.srcName << " -> " << g_plan.dstName
       << " carregador=\"" << g_plan.haulerName << "\"";
     if (g_plan.pickedUp > 0) {
@@ -444,16 +496,40 @@ void abortHaul(const std::string& reason, const std::string& cooldownKey) {
     g_plan = HaulPlan();
 }
 
+// DESLIGAMENTO da feicao na sessao (conservacao violada): libera TODAS as
+// viagens e reservas ANTES de morrer -- com multi-viagem, desativar liberando
+// so o plano violador prenderia leases e carregadores dos outros planos para
+// sempre (achado de revisao 27/07; PRINC-005: falha nunca deixa reserva presa).
+void disableHauling() {
+    for (int i = 0; i < HAUL_MAX_ACTIVE; ++i) {
+        if (g_plans[i].active) {
+            if (!g_plans[i].owner.empty()) {
+                g_res.releaseOwner(g_plans[i].owner);
+            }
+            if (g_plans[i].pickedUp > 0) {
+                diag::milestone("HAUL: viagem #? encerrada pelo desligamento; a "
+                                "carga fica com \"" + g_plans[i].haulerName
+                                + "\" (dentro de inventario; nada se perde).");
+            }
+            g_plans[i] = HaulPlan();
+        }
+    }
+    g_res.clear();
+    g_disabled = true;
+}
+
 // Reset frio total (load/rollback/lifecycle): re-derivar do zero e o
 // contrato (diretriz 15). Intencao nao sobrevive ao mundo mudar por fora.
 void coldReset(const char* why) {
-    if (g_plan.active || g_res.leaseCount() > 0) {
+    if (activePlanCount() > 0 || g_res.leaseCount() > 0) {
         std::ostringstream s;
-        s << "HAUL: reset frio (" << why << ") -- plano e reservas descartados; "
+        s << "HAUL: reset frio (" << why << ") -- planos e reservas descartados; "
           << "re-derivacao na proxima rodada.";
         diag::milestone(s.str());
     }
-    g_plan = HaulPlan();
+    for (int i = 0; i < HAUL_MAX_ACTIVE; ++i) {
+        g_plans[i] = HaulPlan();
+    }
     g_res.clear();
     g_cooldown.clear();
 }
@@ -540,6 +616,8 @@ struct DemandCand {
     float       sx, sy, sz;
     std::string itemSid, itemName;
     double      d2Center; // ordem deterministica (sem flip-flop)
+    bool        topup;    // reposicao (banda), nao falta critica
+    DemandCand() : sx(0), sy(0), sz(0), d2Center(0.0), topup(false) {}
 };
 
 struct SourceCand {
@@ -592,7 +670,11 @@ bool declaresSurplus(Building* b, const std::string& sid) {
     bool found = false;
     lektor<GameData*> rid;
     pb->getItemsWeWantRidOf(rid, false);
-    for (uint32_t i = 0; i < rid.size(); ++i) {
+    uint32_t nr = rid.size();
+    if (nr > 64) {
+        nr = 64; // cap duro (laco nativo)
+    }
+    for (uint32_t i = 0; i < nr; ++i) {
         GameData* gd = rid[i];
         if (gd != 0 && sid == gd->stringID) {
             found = true;
@@ -608,24 +690,11 @@ bool declaresSurplus(Building* b, const std::string& sid) {
     return found;
 }
 
-bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
-              core::CoordMode mode, const core::WriteFence& fence,
-              double now, bool throttle) {
-    Ogre::Vector3 center = town->getPosition();
-    float radius = LS_M0_RADIUS;
-    {
-        float tr = town->getRadius();
-        if (tr > radius) {
-            radius = tr;
-        }
-    }
-    // Uma unica varredura espacial; ponteiros validos SO neste tick.
-    lektor<RootObject*> results;
-    world->getObjectsWithinSphere(results, center, radius, BUILDING,
-                                  LS_M0_MAX_RESULTS, 0);
-
-    // 1) DEMANDAS: estacoes com falta CRITICA (banda nativa; pull REQ-LOG-001).
-    std::vector<DemandCand> demands;
+// Coleta demandas de UM tipo (critica ou topup) na varredura ja feita.
+// Pula pares em cooldown e pares com viagem ATIVA (dedup multi-viagem).
+void collectDemands(lektor<RootObject*>& results, TownBase* town,
+                    const Ogre::Vector3& center, bool topup,
+                    std::vector<DemandCand>& demands) {
     for (uint32_t i = 0; i < results.size(); ++i) {
         RootObject* o = results[i];
         if (o == 0) {
@@ -640,8 +709,16 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             continue;
         }
         lektor<GameData*> need;
-        pb->getResourcesNeededBecauseEmpty(need);
-        for (uint32_t k = 0; k < need.size()
+        if (topup) {
+            pb->getResourcesNeededBecauseNotFull(need);
+        } else {
+            pb->getResourcesNeededBecauseEmpty(need);
+        }
+        uint32_t nn = need.size();
+        if (nn > 64) {
+            nn = 64; // cap duro no INDICE (filtrados nao contam em demands.size)
+        }
+        for (uint32_t k = 0; k < nn
                           && static_cast<int>(demands.size()) < HAUL_MAX_DEMANDS; ++k) {
             GameData* gd = need[k];
             if (gd == 0) {
@@ -655,8 +732,10 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             dc.itemSid = gd->stringID;
             dc.itemName = gd->name;
             dc.d2Center = dist2(p, center);
+            dc.topup = topup;
+            std::string key = taskKeyOf(dc.stationUid, dc.itemSid);
             if (!dc.stationUid.empty() && !dc.itemSid.empty()
-                && !inCooldown(taskKeyOf(dc.stationUid, dc.itemSid))) {
+                && !inCooldown(key) && !demandActive(key)) {
                 demands.push_back(dc);
             }
         }
@@ -670,6 +749,32 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             break;
         }
     }
+}
+
+bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
+              core::CoordMode mode, const core::WriteFence& fence,
+              double now, bool throttle, HaulPlan& g_plan, bool allowTopup) {
+    Ogre::Vector3 center = town->getPosition();
+    float radius = LS_M0_RADIUS;
+    {
+        float tr = town->getRadius();
+        if (tr > radius) {
+            radius = tr;
+        }
+    }
+    // Uma unica varredura espacial; ponteiros validos SO neste tick.
+    lektor<RootObject*> results;
+    world->getObjectsWithinSphere(results, center, radius, BUILDING,
+                                  LS_M0_MAX_RESULTS, 0);
+
+    // 1) DEMANDAS: falta CRITICA primeiro (pull REQ-LOG-001); sem nenhuma
+    // critica pendente, REPOSICAO por banda (topup) -- 1 viagem de topup
+    // por vez (allowTopup), critico sempre fura a fila.
+    std::vector<DemandCand> demands;
+    collectDemands(results, town, center, false, demands);
+    if (demands.empty() && allowTopup) {
+        collectDemands(results, town, center, true, demands);
+    }
 
     if (demands.empty()) {
         if (results.stuff != 0) {
@@ -677,7 +782,7 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             results.stuff = 0; results.count = 0; results.maxSize = 0;
         }
         if (throttle) {
-            diag::log("HAUL: nenhuma falta critica fora de cooldown -- nada a "
+            diag::log("HAUL: nenhuma demanda fora de cooldown -- nada a "
                       "transportar nesta rodada.");
             g_lastLog = g_round;
         }
@@ -766,18 +871,23 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             }
         }
         if (src.count <= 0) {
-            // CONFIRM-HAUL-4 / JANELA DE DEMANDAS v0 (diretriz 13): dizer o que
-            // RESOLVE, nao so o que falta.
+            // CONFIRM-HAUL-4 / JANELA DE DEMANDAS (diretriz 13): dizer o que
+            // RESOLVE, nao so o que falta. Vai pro log E pro quadro da GUI.
             std::ostringstream s;
-            s << "HAUL DEMANDA: \"" << dc.itemName << "\" em falta CRITICA na "
+            s << "HAUL DEMANDA: \"" << dc.itemName << "\" em falta "
+              << (dc.topup ? "de reposicao" : "CRITICA") << " na "
               << "estacao \"" << dc.stationName << "\" (" << dc.stationUid << ") e ";
             if (unitsInStorages > 0) {
                 s << unitsInStorages << " unidade(s) ja estao em deposito -- o "
                   << "operador nativo alcanca; transporte nao resolve (v1 nao "
                   << "faz deposito->deposito). Se ele nao buscar, e outra lacuna.";
+                pushDemandLine("EM DEPOSITO: " + dc.itemName + " ("
+                               + dc.stationName + " deve buscar)");
             } else {
                 s << "NAO ha fonte transportavel na base -- e preciso PRODUZIR/"
-                  << "minerar \"" << dc.itemName << "\" (janela de demandas v0).";
+                  << "minerar \"" << dc.itemName << "\" (janela de demandas).";
+                pushDemandLine("PRODUZIR: " + dc.itemName + " (falta p/ "
+                               + dc.stationName + ")");
             }
             diag::milestone(s.str());
             setCooldown(taskKeyOf(dc.stationUid, dc.itemSid), HAUL_FAIL_COOLDOWN);
@@ -842,8 +952,10 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             s << "HAUL DEMANDA: ha " << src.count << "x \"" << dc.itemName
               << "\" em \"" << src.name << "\" mas NENHUM deposito com espaco "
               << "compativel -- e preciso mais armazenamento (janela de "
-              << "demandas v0).";
+              << "demandas).";
             diag::milestone(s.str());
+            pushDemandLine("FALTA ARMAZEM: " + dc.itemName + " ("
+                           + src.name + " tem, nao ha onde guardar)");
             setCooldown(taskKeyOf(dc.stationUid, dc.itemSid), HAUL_FAIL_COOLDOWN);
             continue;
         }
@@ -861,8 +973,8 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             }
             for (uint32_t i = 0; i < n; ++i) {
                 Character* c = chars[i];
-                if (!porterAvailable(pl, c)) {
-                    continue;
+                if (!porterAvailable(pl, c) || porterOnTrip(c)) {
+                    continue; // em viagem = tomado (multi-viagem)
                 }
                 double d2 = dist2(c->getPosition(), spos);
                 bool idle = false;
@@ -878,6 +990,11 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             }
         }
         if (hauler == 0) {
+            pushDemandLine(core::porterCount() == 0
+                ? std::string("DECLARE CARREGADORES (aba do painel) p/ ")
+                    + dc.itemName
+                : std::string("SEM CARREGADOR livre p/ ") + dc.itemName
+                    + " -> " + dc.stationName);
             if (throttle) {
                 if (core::porterCount() == 0) {
                     diag::milestone("HAUL: demanda pronta mas NENHUM carregador "
@@ -926,20 +1043,30 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
         }
 
         // 4) RESERVAS atomicas (REQ-LOG-002/003; ADR-015): item na fonte +
-        // capacidade do destino + o proprio carregador, tudo-ou-nada.
-        int batch = src.count < HAUL_BATCH_MAX ? src.count : HAUL_BATCH_MAX;
+        // capacidade do destino + o proprio carregador, tudo-ou-nada. O lote
+        // sai do DISPONIVEL (fisico - reservado por outras viagens ativas).
         ++g_seq;
         std::ostringstream ow;
         ow << "haul:" << g_seq;
         std::string owner = ow.str();
+        int batch = 0;
         {
-            std::vector<ls::domain::ReservationRequest> reqs;
             std::string itemRes = "item:" + dc.itemSid + "@" + src.uid;
             std::string capRes = "cap:" + dst.uid;
-            std::string wrkRes = "worker:" + hauler->getName();
+            // Chave do carregador pela IDENTIDADE (hand::toString; ADR-015):
+            // nome duplica em roster grande ("Hive 23" em dobro) e travaria o
+            // gemeo livre enquanto o xara viaja (achado de revisao 27/07).
+            std::string wrkRes = "worker:" + hand(hauler).toString();
             g_res.setPhysical(itemRes, src.count);
             g_res.setPhysical(capRes, 1);
             g_res.setPhysical(wrkRes, 1);
+            int avail = g_res.available(itemRes);
+            batch = avail < HAUL_BATCH_MAX ? avail : HAUL_BATCH_MAX;
+            if (batch <= 0) {
+                setCooldown(taskKeyOf(dc.stationUid, dc.itemSid), HAUL_DONE_COOLDOWN);
+                continue; // tudo desta fonte ja reservado por outra viagem
+            }
+            std::vector<ls::domain::ReservationRequest> reqs;
             double expiry = now + HAUL_LEASE_HOURS;
             reqs.push_back(ls::domain::ReservationRequest(itemRes, owner, batch, expiry));
             reqs.push_back(ls::domain::ReservationRequest(capRes, owner, 1, expiry));
@@ -986,10 +1113,13 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
         g_plan.legBestDist2 = -1.0;
         g_plan.legStall = 0;
         g_plan.reEmits = 0;
+        g_plan.topup = dc.topup;
+        g_plan.seq = g_seq;
         g_plan.owner = owner;
 
         std::ostringstream s;
-        s << "HAUL #" << g_seq << " PLANEJADO: " << batch << "x \"" << dc.itemName
+        s << "HAUL #" << g_seq << (dc.topup ? " (reposicao)" : "")
+          << " PLANEJADO: " << batch << "x \"" << dc.itemName
           << "\" [" << dc.itemSid << "] de \"" << src.name << "\" (" << src.uid
           << ", " << src.count << " disponiveis"
           << (src.surplus ? ", EXCEDENTE declarado" : ", buffer de producao")
@@ -1015,6 +1145,213 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
     return false;
 }
 
+// ---- Processa UMA viagem ativa (multi-viagem: chamada por plano/rodada).
+// Mesmo corpo provado do fluxo single-haul; o parametro sombreia o antigo
+// global de proposito (zero delta no codigo do caminho critico). ----
+void processPlan(GameWorld* world, PlayerInterface* pl, TownBase* town,
+                 core::CoordMode mode, const core::WriteFence& fence,
+                 bool throttle, HaulPlan& g_plan) {
+    // Re-resolver o carregador pelo HAND (identidade exata; ponteiro
+    // tick-scoped, nunca guardado).
+    Character* w = 0;
+    if (g_plan.haulerHand.isValid()) {
+        w = g_plan.haulerHand.getCharacter();
+    }
+    if (w == 0 || !eligible(w)) {
+        abortHaul(g_plan, "carregador indisponivel (sumiu/KO/morto)",
+                  taskKeyOf(g_plan.demandUid, g_plan.itemSid));
+        return;
+    }
+    Ogre::Vector3 wp = w->getPosition();
+    Ogre::Vector3 target = (g_plan.phase == HP_GO_SRC)
+        ? Ogre::Vector3(g_plan.srcX, g_plan.srcY, g_plan.srcZ)
+        : Ogre::Vector3(g_plan.dstX, g_plan.dstY, g_plan.dstZ);
+    double d2 = dist2(wp, target);
+    double arrive2 = static_cast<double>(HAUL_ARRIVE_M) * HAUL_ARRIVE_M;
+
+    if (d2 > arrive2) {
+        unsigned long onLeg = g_round - g_plan.legStart;
+        // PROGRESSO: aproximou desde o melhor ja visto? zera o contador de
+        // travamento; senao, conta. So aborta se TRAVOU (pathing sem saida),
+        // nunca por caminhada longa.
+        if (g_plan.legBestDist2 < 0.0 || d2 < g_plan.legBestDist2 - HAUL_PROGRESS_EPS) {
+            g_plan.legBestDist2 = d2;
+            g_plan.legStall = 0;
+        } else {
+            ++g_plan.legStall;
+        }
+        if (g_plan.legStall > HAUL_LEG_STALL_MAX) {
+            abortHaul(g_plan, "carregador travado (sem se aproximar; pathing sem rota)",
+                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
+            return;
+        }
+        if (onLeg > HAUL_LEG_HARD_CAP) {
+            abortHaul(g_plan, "teto absoluto da perna (caminhada longa demais)",
+                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
+            return;
+        }
+        if (onLeg > 0 && (onLeg % HAUL_REEMIT_EVERY) == 0
+            && g_plan.reEmits < HAUL_MAX_REEMITS) {
+            // GOAP ocioso pode ter puxado o char: re-emitir converge.
+            if (adapters::emitPreposition(mode, fence, w, target)
+                    == adapters::EMIT_OK) {
+                ++g_plan.reEmits;
+                std::ostringstream s;
+                s << "HAUL #" << g_plan.seq << ": destino re-emitido ("
+                  << g_plan.reEmits << "/" << HAUL_MAX_REEMITS << ")";
+                diag::log(s.str());
+            }
+        } else if (throttle) {
+            std::ostringstream s;
+            s << "HAUL #" << g_plan.seq << " ("
+              << (g_plan.phase == HP_GO_SRC ? "rumo a fonte" : "rumo ao deposito")
+              << "): dist2=" << d2 << " rodada-da-perna=" << onLeg
+              << " travado=" << g_plan.legStall;
+            diag::log(s.str());
+            g_lastLog = g_round;
+        }
+        return;
+    }
+
+    // ---- Chegou. Transferencia scriptada NA MESMA rodada (cerca ja aberta). ----
+    if (g_plan.phase == HP_GO_SRC) {
+        Building* src = buildingByUid(world, town, g_plan.srcUid);
+        if (src == 0 || src->getUseableStuff() == 0) {
+            abortHaul(g_plan, "fonte nao re-resolvida (mundo mudou)",
+                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
+            return;
+        }
+        Inventory* srcInv = src->getUseableStuff()->getInventory();
+        Inventory* haulInv = w->getInventory();
+        if (srcInv == 0 || haulInv == 0) {
+            abortHaul(g_plan, "inventario ausente na coleta",
+                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
+            return;
+        }
+        int srcBefore = countBySid(srcInv, g_plan.itemSid);
+        int haulBefore = countBySid(haulInv, g_plan.itemSid);
+        if (srcBefore <= 0) {
+            abortHaul(g_plan, "fonte esvaziou antes da coleta (corrida)",
+                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
+            return;
+        }
+        int moved = scriptedTransfer(srcInv, haulInv, g_plan.itemSid,
+                                     g_plan.batch, w);
+        int srcAfter = countBySid(srcInv, g_plan.itemSid);
+        int haulAfter = countBySid(haulInv, g_plan.itemSid);
+        int outSrc = srcBefore - srcAfter;
+        int inHaul = haulAfter - haulBefore;
+        if (outSrc != inHaul) {
+            std::ostringstream s;
+            s << "HAUL CONSERVACAO VIOLADA na coleta: fonte " << srcBefore
+              << "->" << srcAfter << " (saiu " << outSrc << ") vs carregador "
+              << haulBefore << "->" << haulAfter << " (entrou " << inHaul
+              << "). CARREGADOR DESATIVADO nesta sessao (degraded-safe); "
+              << "TODAS as viagens e reservas liberadas. Investigar antes de religar.";
+            diag::error(s.str());
+            disableHauling(); // libera TODOS os planos (nao so este)
+            return;
+        }
+        if (moved <= 0 || inHaul <= 0) {
+            abortHaul(g_plan, "coleta nao moveu nada (sem folga de peso/stack)",
+                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
+            return;
+        }
+        g_plan.pickedUp = inHaul;
+        g_plan.phase = HP_GO_DST;
+        g_plan.legStart = g_round;
+        g_plan.legBestDist2 = -1.0;
+        g_plan.legStall = 0;
+        g_plan.reEmits = 0;
+        // A carga agora vive no inventario do carregador: solta a reserva do
+        // ITEM na fonte (cap+worker ficam) -- senao um 2o plano veria a fonte
+        // falsamente esgotada durante toda a perna de entrega (revisao 27/07).
+        g_res.release("item:" + g_plan.itemSid + "@" + g_plan.srcUid, g_plan.owner);
+        adapters::EmitResult r = adapters::emitPreposition(
+            mode, fence, w, Ogre::Vector3(g_plan.dstX, g_plan.dstY, g_plan.dstZ));
+        std::ostringstream s;
+        s << "HAUL #" << g_plan.seq << " COLETA OK: " << inHaul << "x \""
+          << g_plan.itemName << "\" (fonte " << srcBefore << "->" << srcAfter
+          << ", carregador " << haulBefore << "->" << haulAfter
+          << "; CONSERVACAO PROVADA) -- CONFIRM-HAUL-1. Rumo ao deposito \""
+          << g_plan.dstName << "\" (emissao=" << adapters::emitResultName(r)
+          << ").";
+        diag::milestone(s.str());
+        return;
+    }
+
+    // HP_GO_DST: entregar.
+    {
+        Building* dst = buildingByUid(world, town, g_plan.dstUid);
+        if (dst == 0 || dst->getUseableStuff() == 0) {
+            abortHaul(g_plan, "destino nao re-resolvido (mundo mudou); carga fica "
+                      "com o carregador",
+                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
+            return;
+        }
+        Inventory* dstInv = dst->getUseableStuff()->getInventory();
+        Inventory* haulInv = w->getInventory();
+        if (dstInv == 0 || haulInv == 0) {
+            abortHaul(g_plan, "inventario ausente na entrega",
+                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
+            return;
+        }
+        int haulBefore = countBySid(haulInv, g_plan.itemSid);
+        int dstBefore = countBySid(dstInv, g_plan.itemSid);
+        if (haulBefore <= 0) {
+            abortHaul(g_plan, "carregador chegou sem a carga (corrida)",
+                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
+            return;
+        }
+        int toDrop = haulBefore < g_plan.pickedUp ? haulBefore : g_plan.pickedUp;
+        int moved = scriptedTransfer(haulInv, dstInv, g_plan.itemSid,
+                                     toDrop, 0 /*sem trava de peso: deposito*/);
+        int haulAfter = countBySid(haulInv, g_plan.itemSid);
+        int dstAfter = countBySid(dstInv, g_plan.itemSid);
+        int outHaul = haulBefore - haulAfter;
+        int inDst = dstAfter - dstBefore;
+        if (outHaul != inDst) {
+            std::ostringstream s;
+            s << "HAUL CONSERVACAO VIOLADA na entrega: carregador " << haulBefore
+              << "->" << haulAfter << " (saiu " << outHaul << ") vs deposito "
+              << dstBefore << "->" << dstAfter << " (entrou " << inDst
+              << "). CARREGADOR DESATIVADO nesta sessao (degraded-safe); "
+              << "TODAS as viagens e reservas liberadas.";
+            diag::error(s.str());
+            disableHauling(); // libera TODOS os planos (nao so este)
+            return;
+        }
+        // Terminal: libera reservas; cooldown curto p/ o estoque assentar.
+        g_res.releaseOwner(g_plan.owner);
+        setCooldown(taskKeyOf(g_plan.demandUid, g_plan.itemSid),
+                    HAUL_DONE_COOLDOWN);
+        std::ostringstream s;
+        if (moved > 0) {
+            s << "HAUL #" << g_plan.seq << " COMPLETO: " << inDst << "x \""
+              << g_plan.itemName << "\" entregue em \"" << g_plan.dstName
+              << "\" (deposito " << dstBefore << "->" << dstAfter
+              << "; conservacao provada nas duas pontas) -- CONFIRM-HAUL-2 "
+              << "(POC-005: transporte A->B executado). Demanda de origem: \""
+              << g_plan.demandName << "\" -- observar a estacao voltar a "
+              << "produzir (CONFIRM-HAUL-3).";
+            if (haulAfter > 0) {
+                s << " | " << haulAfter << " unidade(s) FICARAM com o "
+                  << "carregador (deposito encheu no meio).";
+            }
+            diag::milestone(s.str());
+        } else {
+            s << "HAUL #" << g_plan.seq << " FALHA na entrega: deposito \""
+              << g_plan.dstName << "\" recusou tudo (encheu no caminho?); a "
+              << "carga (" << haulAfter << ") fica com o carregador \""
+              << g_plan.haulerName << "\" -- nada se perde; cooldown e "
+              << "re-derivacao.";
+            diag::milestone(s.str());
+        }
+        g_plan = HaulPlan();
+        return;
+    }
+}
+
 } // namespace
 
 void poc029CarregadorTick(GameWorld* world) {
@@ -1022,9 +1359,9 @@ void poc029CarregadorTick(GameWorld* world) {
         return;
     }
     const core::PocEnvState& env = core::pocEnv();
-    // Haul ATIVO sempre e processado (nunca deixar reserva/carga pendurada);
+    // Viagem ATIVA sempre e processada (nunca deixar reserva/carga pendurada);
     // ocioso, so age com o laco ligado ou 1 ciclo pedido no painel.
-    if (!g_plan.active && !env.haul && !env.haulOnce) {
+    if (activePlanCount() == 0 && !env.haul && !env.haulOnce) {
         return;
     }
     core::CoordMode mode = core::evaluateLifecycle(world, true);
@@ -1053,16 +1390,19 @@ void poc029CarregadorTick(GameWorld* world) {
         return; // proxima rodada re-deriva do zero
     }
     g_lastNow = now;
-    // RENOVA a reserva do haul vivo ANTES de expirar orfaos: enquanto a tarefa
-    // avanca, a reserva nunca vence (caminhadas longas nao mais matam o haul).
-    if (g_plan.active) {
-        g_res.touch(g_plan.owner, now + HAUL_LEASE_HOURS);
+    // RENOVA as reservas das viagens vivas ANTES de expirar orfaos: enquanto
+    // a tarefa avanca, a reserva nunca vence (caminhada longa nao mata haul).
+    for (int i = 0; i < HAUL_MAX_ACTIVE; ++i) {
+        if (g_plans[i].active) {
+            g_res.touch(g_plans[i].owner, now + HAUL_LEASE_HOURS);
+        }
     }
     g_res.expire(now);
-    if (g_plan.active && !g_res.ownerHasLeases(g_plan.owner)) {
-        abortHaul("reserva perdida (recurso sumiu por fora)",
-                  taskKeyOf(g_plan.demandUid, g_plan.itemSid));
-        return;
+    for (int i = 0; i < HAUL_MAX_ACTIVE; ++i) {
+        if (g_plans[i].active && !g_res.ownerHasLeases(g_plans[i].owner)) {
+            abortHaul(g_plans[i], "reserva perdida (recurso sumiu por fora)",
+                      taskKeyOf(g_plans[i].demandUid, g_plans[i].itemSid));
+        }
     }
 
     // Dedicar carregadores (liberar cargos de producao antigos) e mandar os
@@ -1099,217 +1439,74 @@ void poc029CarregadorTick(GameWorld* world) {
         return;
     }
 
-    // ---- IDLE: procurar demanda e planejar ----
-    if (!g_plan.active) {
-        bool planned = planHaul(world, pl, town, mode, fence, now, throttle);
-        if (env.haulOnce) {
-            core::pocEnvMutable().haulOnce = false; // pedido do painel atendido
-            if (!planned) {
-                diag::milestone("HAUL (1 ciclo): nenhuma viagem planejada nesta "
-                                "rodada -- ver linhas HAUL acima pelo motivo.");
+    // ---- Quadro de demandas desta rodada (a aba da GUI le o espelho) ----
+    g_demandLines.clear();
+
+    // ---- Processa TODAS as viagens ativas (multi-viagem) ----
+    for (int i = 0; i < HAUL_MAX_ACTIVE; ++i) {
+        if (g_disabled) {
+            break; // conservacao violou no meio do laco: nada mais roda
+        }
+        if (g_plans[i].active) {
+            processPlan(world, pl, town, mode, fence, throttle, g_plans[i]);
+        }
+        if (g_plans[i].active) { // ainda ativa apos processar -> status no quadro
+            std::ostringstream s;
+            s << "EM TRANSPORTE: " << g_plans[i].batch << "x "
+              << g_plans[i].itemName
+              << (g_plans[i].topup ? " (reposicao)" : "")
+              << " -> " << g_plans[i].dstName << " [" << g_plans[i].haulerName
+              << ", " << (g_plans[i].phase == HP_GO_SRC ? "indo a fonte"
+                                                        : "levando ao deposito")
+              << "]";
+            pushDemandLine(s.str());
+        }
+    }
+
+    // ---- Planeja ate UMA viagem nova por rodada (suave). NUNCA com a
+    // feicao desativada nesta mesma rodada (emitiria viagem orfa que
+    // nenhum tick futuro processaria -- achado de revisao 27/07). ----
+    int active = activePlanCount();
+    if (!g_disabled && active < HAUL_MAX_ACTIVE && (env.haul || env.haulOnce)) {
+        bool topupActive = false;
+        int slot = -1;
+        for (int i = 0; i < HAUL_MAX_ACTIVE; ++i) {
+            if (g_plans[i].active && g_plans[i].topup) {
+                topupActive = true;
+            }
+            if (!g_plans[i].active && slot < 0) {
+                slot = i;
             }
         }
-        return;
-    }
-
-    // ---- Haul ativo: re-resolver o carregador pelo HAND (identidade exata;
-    // ponteiro tick-scoped, nunca guardado) ----
-    Character* w = 0;
-    if (g_plan.haulerHand.isValid()) {
-        w = g_plan.haulerHand.getCharacter();
-    }
-    if (w == 0 || !eligible(w)) {
-        abortHaul("carregador indisponivel (sumiu/KO/morto)",
-                  taskKeyOf(g_plan.demandUid, g_plan.itemSid));
-        return;
-    }
-    Ogre::Vector3 wp = w->getPosition();
-    Ogre::Vector3 target = (g_plan.phase == HP_GO_SRC)
-        ? Ogre::Vector3(g_plan.srcX, g_plan.srcY, g_plan.srcZ)
-        : Ogre::Vector3(g_plan.dstX, g_plan.dstY, g_plan.dstZ);
-    double d2 = dist2(wp, target);
-    double arrive2 = static_cast<double>(HAUL_ARRIVE_M) * HAUL_ARRIVE_M;
-
-    if (d2 > arrive2) {
-        unsigned long onLeg = g_round - g_plan.legStart;
-        // PROGRESSO: aproximou desde o melhor ja visto? zera o contador de
-        // travamento; senao, conta. So aborta se TRAVOU (pathing sem saida),
-        // nunca por caminhada longa.
-        if (g_plan.legBestDist2 < 0.0 || d2 < g_plan.legBestDist2 - HAUL_PROGRESS_EPS) {
-            g_plan.legBestDist2 = d2;
-            g_plan.legStall = 0;
-        } else {
-            ++g_plan.legStall;
-        }
-        if (g_plan.legStall > HAUL_LEG_STALL_MAX) {
-            abortHaul("carregador travado (sem se aproximar; pathing sem rota)",
-                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
-            return;
-        }
-        if (onLeg > HAUL_LEG_HARD_CAP) {
-            abortHaul("teto absoluto da perna (caminhada longa demais)",
-                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
-            return;
-        }
-        if (onLeg > 0 && (onLeg % HAUL_REEMIT_EVERY) == 0
-            && g_plan.reEmits < HAUL_MAX_REEMITS) {
-            // GOAP ocioso pode ter puxado o char: re-emitir converge.
-            if (adapters::emitPreposition(mode, fence, w, target)
-                    == adapters::EMIT_OK) {
-                ++g_plan.reEmits;
+        if (slot >= 0) {
+            bool planned = planHaul(world, pl, town, mode, fence, now, throttle,
+                                    g_plans[slot], !topupActive);
+            if (planned && g_plans[slot].active) {
+                // Quadro reflete a viagem JA nesta rodada (senao a GUI diria
+                // "logistica em dia" com carregador recem-despachado).
                 std::ostringstream s;
-                s << "HAUL #" << g_seq << ": destino re-emitido ("
-                  << g_plan.reEmits << "/" << HAUL_MAX_REEMITS << ")";
-                diag::log(s.str());
+                s << "EM TRANSPORTE: " << g_plans[slot].batch << "x "
+                  << g_plans[slot].itemName
+                  << (g_plans[slot].topup ? " (reposicao)" : "")
+                  << " -> " << g_plans[slot].dstName << " ["
+                  << g_plans[slot].haulerName << ", indo a fonte]";
+                pushDemandLine(s.str());
             }
-        } else if (throttle) {
-            std::ostringstream s;
-            s << "HAUL #" << g_seq << " ("
-              << (g_plan.phase == HP_GO_SRC ? "rumo a fonte" : "rumo ao deposito")
-              << "): dist2=" << d2 << " rodada-da-perna=" << onLeg
-              << " travado=" << g_plan.legStall;
-            diag::log(s.str());
-            g_lastLog = g_round;
+            if (env.haulOnce) {
+                core::pocEnvMutable().haulOnce = false; // pedido do painel atendido
+                if (!planned) {
+                    diag::milestone("HAUL (1 ciclo): nenhuma viagem planejada nesta "
+                                    "rodada -- ver linhas HAUL acima pelo motivo.");
+                }
+            }
         }
-        return;
     }
 
-    // ---- Chegou. Transferencia scriptada NA MESMA rodada (cerca ja aberta). ----
-    if (g_plan.phase == HP_GO_SRC) {
-        Building* src = buildingByUid(world, town, g_plan.srcUid);
-        if (src == 0 || src->getUseableStuff() == 0) {
-            abortHaul("fonte nao re-resolvida (mundo mudou)",
-                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
-            return;
-        }
-        Inventory* srcInv = src->getUseableStuff()->getInventory();
-        Inventory* haulInv = w->getInventory();
-        if (srcInv == 0 || haulInv == 0) {
-            abortHaul("inventario ausente na coleta",
-                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
-            return;
-        }
-        int srcBefore = countBySid(srcInv, g_plan.itemSid);
-        int haulBefore = countBySid(haulInv, g_plan.itemSid);
-        if (srcBefore <= 0) {
-            abortHaul("fonte esvaziou antes da coleta (corrida)",
-                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
-            return;
-        }
-        int moved = scriptedTransfer(srcInv, haulInv, g_plan.itemSid,
-                                     g_plan.batch, w);
-        int srcAfter = countBySid(srcInv, g_plan.itemSid);
-        int haulAfter = countBySid(haulInv, g_plan.itemSid);
-        int outSrc = srcBefore - srcAfter;
-        int inHaul = haulAfter - haulBefore;
-        if (outSrc != inHaul) {
-            std::ostringstream s;
-            s << "HAUL CONSERVACAO VIOLADA na coleta: fonte " << srcBefore
-              << "->" << srcAfter << " (saiu " << outSrc << ") vs carregador "
-              << haulBefore << "->" << haulAfter << " (entrou " << inHaul
-              << "). CARREGADOR DESATIVADO nesta sessao (degraded-safe); "
-              << "reservas liberadas. Investigar antes de religar.";
-            diag::error(s.str());
-            g_res.releaseOwner(g_plan.owner);
-            g_plan = HaulPlan();
-            g_disabled = true;
-            return;
-        }
-        if (moved <= 0 || inHaul <= 0) {
-            abortHaul("coleta nao moveu nada (sem folga de peso/stack)",
-                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
-            return;
-        }
-        g_plan.pickedUp = inHaul;
-        g_plan.phase = HP_GO_DST;
-        g_plan.legStart = g_round;
-        g_plan.legBestDist2 = -1.0;
-        g_plan.legStall = 0;
-        g_plan.reEmits = 0;
-        adapters::EmitResult r = adapters::emitPreposition(
-            mode, fence, w, Ogre::Vector3(g_plan.dstX, g_plan.dstY, g_plan.dstZ));
-        std::ostringstream s;
-        s << "HAUL #" << g_seq << " COLETA OK: " << inHaul << "x \""
-          << g_plan.itemName << "\" (fonte " << srcBefore << "->" << srcAfter
-          << ", carregador " << haulBefore << "->" << haulAfter
-          << "; CONSERVACAO PROVADA) -- CONFIRM-HAUL-1. Rumo ao deposito \""
-          << g_plan.dstName << "\" (emissao=" << adapters::emitResultName(r)
-          << ").";
-        diag::milestone(s.str());
-        return;
+    if (g_demandLines.empty()) {
+        pushDemandLine(env.haul ? "(sem demandas pendentes; logistica em dia)"
+                                : "(transporte auto desligado)");
     }
-
-    // HP_GO_DST: entregar.
-    {
-        Building* dst = buildingByUid(world, town, g_plan.dstUid);
-        if (dst == 0 || dst->getUseableStuff() == 0) {
-            abortHaul("destino nao re-resolvido (mundo mudou); carga fica com "
-                      "o carregador",
-                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
-            return;
-        }
-        Inventory* dstInv = dst->getUseableStuff()->getInventory();
-        Inventory* haulInv = w->getInventory();
-        if (dstInv == 0 || haulInv == 0) {
-            abortHaul("inventario ausente na entrega",
-                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
-            return;
-        }
-        int haulBefore = countBySid(haulInv, g_plan.itemSid);
-        int dstBefore = countBySid(dstInv, g_plan.itemSid);
-        if (haulBefore <= 0) {
-            abortHaul("carregador chegou sem a carga (corrida)",
-                      taskKeyOf(g_plan.demandUid, g_plan.itemSid));
-            return;
-        }
-        int toDrop = haulBefore < g_plan.pickedUp ? haulBefore : g_plan.pickedUp;
-        int moved = scriptedTransfer(haulInv, dstInv, g_plan.itemSid,
-                                     toDrop, 0 /*sem trava de peso: deposito*/);
-        int haulAfter = countBySid(haulInv, g_plan.itemSid);
-        int dstAfter = countBySid(dstInv, g_plan.itemSid);
-        int outHaul = haulBefore - haulAfter;
-        int inDst = dstAfter - dstBefore;
-        if (outHaul != inDst) {
-            std::ostringstream s;
-            s << "HAUL CONSERVACAO VIOLADA na entrega: carregador " << haulBefore
-              << "->" << haulAfter << " (saiu " << outHaul << ") vs deposito "
-              << dstBefore << "->" << dstAfter << " (entrou " << inDst
-              << "). CARREGADOR DESATIVADO nesta sessao (degraded-safe).";
-            diag::error(s.str());
-            g_res.releaseOwner(g_plan.owner);
-            g_plan = HaulPlan();
-            g_disabled = true;
-            return;
-        }
-        // Terminal: libera reservas; cooldown curto p/ o estoque assentar.
-        g_res.releaseOwner(g_plan.owner);
-        setCooldown(taskKeyOf(g_plan.demandUid, g_plan.itemSid),
-                    HAUL_DONE_COOLDOWN);
-        std::ostringstream s;
-        if (moved > 0) {
-            s << "HAUL #" << g_seq << " COMPLETO: " << inDst << "x \""
-              << g_plan.itemName << "\" entregue em \"" << g_plan.dstName
-              << "\" (deposito " << dstBefore << "->" << dstAfter
-              << "; conservacao provada nas duas pontas) -- CONFIRM-HAUL-2 "
-              << "(POC-005: transporte A->B executado). Demanda de origem: \""
-              << g_plan.demandName << "\" -- observar a estacao voltar a "
-              << "produzir (CONFIRM-HAUL-3).";
-            if (haulAfter > 0) {
-                s << " | " << haulAfter << " unidade(s) FICARAM com o "
-                  << "carregador (deposito encheu no meio).";
-            }
-            diag::milestone(s.str());
-        } else {
-            s << "HAUL #" << g_seq << " FALHA na entrega: deposito \""
-              << g_plan.dstName << "\" recusou tudo (encheu no caminho?); a "
-              << "carga (" << haulAfter << ") fica com o carregador \""
-              << g_plan.haulerName << "\" -- nada se perde; cooldown e "
-              << "re-derivacao.";
-            diag::milestone(s.str());
-        }
-        g_plan = HaulPlan();
-        return;
-    }
+    core::demandsSet(g_demandLines);
 }
 
 } // namespace pocs

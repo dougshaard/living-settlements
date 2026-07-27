@@ -8,6 +8,7 @@
 #include "ui/ControlPanel.h"
 #include "core/PocEnv.h"
 #include "core/Porters.h"
+#include "core/Demands.h"
 #include "core/Diagnostics.h"
 
 #include <kenshi/gui/TitleScreen.h>
@@ -34,6 +35,37 @@ MyGUI::Button* g_btnMed = 0;
 MyGUI::Button* g_btnTur = 0;
 MyGUI::Button* g_btnWipe = 0;
 MyGUI::Button* g_btnPorters = 0;
+MyGUI::Button* g_btnDemands = 0;
+
+// --- Janela "Demandas": espelho do quadro que o transporte publica por
+// rodada (core/Demands). Linhas-rotulo + botao Atualizar; nenhuma leitura
+// de mundo no clique (padrao das janelas do painel).
+static const int DEMAND_ROWS = 10;
+MyGUI::Window* g_demandWin = 0;
+MyGUI::Button* g_demandRow[DEMAND_ROWS] = { 0 };
+MyGUI::Button* g_demandRefresh = 0;
+
+void refreshDemandWindow() {
+    if (g_demandWin == 0) {
+        return;
+    }
+    const std::vector<std::string>& lines = core::demandsGet();
+    for (int i = 0; i < DEMAND_ROWS; ++i) {
+        if (g_demandRow[i] == 0) {
+            continue;
+        }
+        if (i < static_cast<int>(lines.size())) {
+            g_demandRow[i]->setCaption(lines[i]);
+        } else {
+            g_demandRow[i]->setCaption(i == 0 ? "(sem dados ainda -- aguarde "
+                                                "uma rodada)" : "");
+        }
+    }
+}
+
+void onDemandRefresh(MyGUI::WidgetPtr /*sender*/) {
+    refreshDemandWindow();
+}
 
 // --- Janela "Carregadores": roster paginado, clique alterna a declaracao.
 // So skins ja provadas (Kenshi_WindowCX/Kenshi_Button1). A GUI le apenas o
@@ -47,6 +79,11 @@ MyGUI::Button* g_porterPrev = 0;
 MyGUI::Button* g_porterNext = 0;
 int g_porterPage = 0;
 int g_porterIdx[PORTER_PAGE]; // indice no espelho; -1 = linha vazia
+// IDENTIDADE da linha no momento do refresh (hand): o roster e reconstruido a
+// cada rodada, entao um INDICE pode apontar p/ outra pessoa quando o clique
+// chega (morte/recruta/saida) -- o clique age no hand, nunca no indice
+// (achado de revisao 27/07: clicava em "Bob", declarava "Alice").
+hand g_porterRowHand[PORTER_PAGE];
 
 void refreshPorterWindow() {
     if (g_porterWin == 0) {
@@ -78,6 +115,7 @@ void refreshPorterWindow() {
         int idx = g_porterPage * PORTER_PAGE + i;
         if (idx < n) {
             g_porterIdx[i] = idx;
+            g_porterRowHand[i] = r[idx].h;
             g_porterBtn[i]->setCaption(
                 std::string(r[idx].porter ? "[C] " : "     ") + r[idx].name);
             if (g_porterPostBtn[i] != 0) {
@@ -94,6 +132,7 @@ void refreshPorterWindow() {
             }
         } else {
             g_porterIdx[i] = -1;
+            g_porterRowHand[i] = hand();
             g_porterBtn[i]->setCaption(n == 0 ? "(carregue um mundo)" : "-");
             if (g_porterPostBtn[i] != 0) {
                 g_porterPostBtn[i]->setCaption("");
@@ -103,12 +142,11 @@ void refreshPorterWindow() {
 }
 
 void onPorterRow(MyGUI::WidgetPtr sender) {
-    const std::vector<core::RosterEntry>& r = core::roster();
     for (int i = 0; i < PORTER_PAGE; ++i) {
         if (sender == g_porterBtn[i]) {
-            int idx = g_porterIdx[i];
-            if (idx >= 0 && idx < static_cast<int>(r.size())) {
-                core::togglePorter(r[idx].h);
+            // Age no HAND capturado no refresh (identidade), nunca no indice.
+            if (g_porterIdx[i] >= 0 && g_porterRowHand[i].isValid()) {
+                core::togglePorter(g_porterRowHand[i]);
                 refreshPorterWindow();
             }
             return;
@@ -117,13 +155,14 @@ void onPorterRow(MyGUI::WidgetPtr sender) {
 }
 
 void onPorterPost(MyGUI::WidgetPtr sender) {
-    const std::vector<core::RosterEntry>& r = core::roster();
     for (int i = 0; i < PORTER_PAGE; ++i) {
         if (sender == g_porterPostBtn[i]) {
-            int idx = g_porterIdx[i];
-            if (idx >= 0 && idx < static_cast<int>(r.size()) && r[idx].porter) {
-                core::cyclePorterPost(r[idx].h); // cicla posto declarado -> ...
-                refreshPorterWindow();
+            if (g_porterIdx[i] >= 0 && g_porterRowHand[i].isValid()) {
+                Character* c = g_porterRowHand[i].getCharacter();
+                if (c != 0 && core::isPorter(c)) { // verdade fresca, nao a do refresh
+                    core::cyclePorterPost(g_porterRowHand[i]);
+                    refreshPorterWindow();
+                }
             }
             return;
         }
@@ -175,6 +214,9 @@ void refreshCaptions() {
         cap << "Carregadores: " << core::porterCount();
         g_btnPorters->setCaption(cap.str());
     }
+    if (g_btnDemands != 0) {
+        g_btnDemands->setCaption("Demandas da colonia");
+    }
 }
 
 void onToggle(MyGUI::WidgetPtr sender) {
@@ -220,6 +262,16 @@ void onToggle(MyGUI::WidgetPtr sender) {
         }
         what = "Carregadores (aba)";
         now = (g_porterWin != 0 && g_porterWin->getVisible());
+    } else if (sender == g_btnDemands) {
+        if (g_demandWin != 0) {
+            bool show = !g_demandWin->getVisible();
+            g_demandWin->setVisible(show);
+            if (show) {
+                refreshDemandWindow();
+            }
+        }
+        what = "Demandas (aba)";
+        now = (g_demandWin != 0 && g_demandWin->getVisible());
     }
     refreshCaptions();
     diag::milestone(std::string("PAINEL: ") + what + " -> "
@@ -229,7 +281,7 @@ void onToggle(MyGUI::WidgetPtr sender) {
 
 MyGUI::Button* makeToggle(MyGUI::Widget* parent, float y, const char* name) {
     MyGUI::Button* b = parent->createWidgetReal<MyGUI::Button>(
-        "Kenshi_Button1", 0.05f, y, 0.90f, 0.12f, MyGUI::Align::Default, name);
+        "Kenshi_Button1", 0.05f, y, 0.90f, 0.095f, MyGUI::Align::Default, name);
     b->eventMouseButtonClick += MyGUI::newDelegate(onToggle);
     return b;
 }
@@ -250,14 +302,15 @@ TitleScreen* titleHook(TitleScreen* thisptr) {
         MyGUI::Align::Default, "Window", "LSControlPanel");
     w->setCaption("Living Settlements");
     MyGUI::Widget* c = w->getClientWidget();
-    g_btnOrch     = makeToggle(c, 0.010f, "LSBtnOrch");
-    g_btnGarrison = makeToggle(c, 0.135f, "LSBtnGarrison");
-    g_btnHaul     = makeToggle(c, 0.260f, "LSBtnHaul");
-    g_btnHaulOnce = makeToggle(c, 0.385f, "LSBtnHaulOnce");
-    g_btnMed      = makeToggle(c, 0.510f, "LSBtnMed");
-    g_btnTur      = makeToggle(c, 0.635f, "LSBtnTur");
-    g_btnWipe     = makeToggle(c, 0.760f, "LSBtnWipe");
-    g_btnPorters  = makeToggle(c, 0.885f, "LSBtnPorters");
+    g_btnOrch     = makeToggle(c, 0.008f, "LSBtnOrch");
+    g_btnGarrison = makeToggle(c, 0.116f, "LSBtnGarrison");
+    g_btnHaul     = makeToggle(c, 0.224f, "LSBtnHaul");
+    g_btnHaulOnce = makeToggle(c, 0.332f, "LSBtnHaulOnce");
+    g_btnMed      = makeToggle(c, 0.440f, "LSBtnMed");
+    g_btnTur      = makeToggle(c, 0.548f, "LSBtnTur");
+    g_btnWipe     = makeToggle(c, 0.656f, "LSBtnWipe");
+    g_btnPorters  = makeToggle(c, 0.764f, "LSBtnPorters");
+    g_btnDemands  = makeToggle(c, 0.872f, "LSBtnDemands");
 
     // Janela "Carregadores" (aba de declaracao; comeca oculta). Duas colunas
     // por linha: nome (alterna declarar) + posto (cicla atribuicao).
@@ -290,6 +343,27 @@ TitleScreen* titleHook(TitleScreen* thisptr) {
         g_porterNext->eventMouseButtonClick += MyGUI::newDelegate(onPorterNav);
     }
     g_porterWin->setVisible(false);
+
+    // Janela "Demandas" (quadro da logistica; comeca oculta).
+    g_demandWin = gui->createWidgetReal<MyGUI::Window>(
+        "Kenshi_WindowCX", 0.30f, 0.22f, 0.23f, 0.50f,
+        MyGUI::Align::Default, "Window", "LSDemandWindow");
+    g_demandWin->setCaption("Demandas da colonia");
+    {
+        MyGUI::Widget* dc = g_demandWin->getClientWidget();
+        for (int i = 0; i < DEMAND_ROWS; ++i) {
+            g_demandRow[i] = dc->createWidgetReal<MyGUI::Button>(
+                "Kenshi_Button1", 0.03f, 0.010f + 0.082f * i, 0.94f, 0.075f,
+                MyGUI::Align::Default, "");
+            g_demandRow[i]->setCaption("");
+        }
+        g_demandRefresh = dc->createWidgetReal<MyGUI::Button>(
+            "Kenshi_Button1", 0.03f, 0.845f, 0.94f, 0.10f,
+            MyGUI::Align::Default, "");
+        g_demandRefresh->setCaption("Atualizar");
+        g_demandRefresh->eventMouseButtonClick += MyGUI::newDelegate(onDemandRefresh);
+    }
+    g_demandWin->setVisible(false);
     refreshCaptions();
     diag::milestone("PAINEL de controle criado (janela 'Living Settlements'; "
                     "toggles ao vivo -- poc.txt e so o default de boot)");
