@@ -320,6 +320,20 @@ int porterCount() {
          + static_cast<int>(g_pending.size());
 }
 
+int pendingPorterCount() {
+    loadDecls();
+    return static_cast<int>(g_pending.size());
+}
+
+void pendingPorterNames(std::vector<std::string>& out, int maxNames) {
+    loadDecls();
+    for (size_t i = 0; i < g_pending.size()
+                     && static_cast<int>(out.size()) < maxNames; ++i) {
+        out.push_back(g_pending[i].name.empty() ? g_pending[i].uid
+                                                : g_pending[i].name);
+    }
+}
+
 // ---- Postos ----
 void declarePost(const std::string& key, const std::string& name,
                  float x, float y, float z) {

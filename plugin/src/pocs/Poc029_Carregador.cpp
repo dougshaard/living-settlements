@@ -56,6 +56,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <sstream>
 
 namespace ls {
@@ -139,6 +140,10 @@ bool          g_disabled = false;   // conservacao violada -> feicao morre na se
 double        g_lastNow = -1.0;     // deteccao de rollback (relogio andou p/ tras)
 ls::domain::ReservationManager g_res;
 std::map<std::string, unsigned long> g_cooldown; // taskKey -> rodada liberada
+// Postos cuja chave/posicao NAO casou com predio algum deste mundo (recalculado
+// pela saude das declaracoes a cada rodada): alem do AVISO no quadro, o
+// idle-return NAO manda ninguem esperar em terreno vazio.
+std::set<std::string> g_orphanPosts;
 
 bool eligible(Character* c) {
     return c != 0 && c->isAnimal() == 0 && !c->isDead() && !c->isUnconcious()
@@ -346,6 +351,10 @@ void returnIdlePortersToPosts(GameWorld* world, PlayerInterface* pl,
         if (!core::porterPostPos(hand(c), px, py, pz)) {
             continue; // sem posto atribuido: fica onde esta
         }
+        if (g_orphanPosts.count(core::porterPostKey(hand(c))) != 0) {
+            continue; // posto nao existe NESTE mundo: avisado no quadro;
+                      // ninguem espera em terreno vazio (dir.20)
+        }
         Ogre::Vector3 post(px, py, pz);
         if (dist2(c->getPosition(), post)
                 <= static_cast<double>(RET_AT_POST_M) * RET_AT_POST_M) {
@@ -532,6 +541,7 @@ void coldReset(const char* why) {
     }
     g_res.clear();
     g_cooldown.clear();
+    g_orphanPosts.clear(); // mundo novo: re-avaliar a saude das declaracoes
 }
 
 // ---- Transferencia scriptada (RISK-013): move ate `want` unidades de
@@ -1145,6 +1155,80 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
     return false;
 }
 
+// ---- SAUDE DAS DECLARACOES (diretriz 20): o mod LEMBRA o que o jogador
+// declarou, mas o mundo carregado pode nao conter aquilo (dono nao salva;
+// predio do posto pode nem existir neste save). Quem detecta a divergencia
+// AVISA no quadro de demandas -- dizendo o que RESOLVE -- em vez de deixar
+// "as coisas se comportarem de forma estranha" (dono, 27/07). ----
+void pushDeclarationHealth(GameWorld* world, TownBase* town) {
+    // Carregadores declarados que nao existem neste mundo (pendencias).
+    int pend = core::pendingPorterCount();
+    if (pend > 0) {
+        std::vector<std::string> names;
+        core::pendingPorterNames(names, 3);
+        std::ostringstream s;
+        s << "AVISO: " << pend << " carregador(es) declarado(s) NAO existem "
+          << "neste mundo (";
+        for (size_t i = 0; i < names.size(); ++i) {
+            s << (i ? ", " : "") << names[i];
+        }
+        if (pend > static_cast<int>(names.size())) {
+            s << ", +" << (pend - static_cast<int>(names.size()));
+        }
+        s << ") -- aguardando existirem; ou re-declare na aba.";
+        pushDemandLine(s.str());
+    }
+    // Postos orfaos: nenhum predio deste mundo casa com a chave/posicao.
+    const std::vector<core::PostEntry>& ps = core::posts();
+    if (ps.empty()) {
+        return;
+    }
+    Ogre::Vector3 center = town->getPosition();
+    float radius = LS_M0_RADIUS;
+    {
+        float tr = town->getRadius();
+        if (tr > radius) {
+            radius = tr;
+        }
+    }
+    lektor<RootObject*> results;
+    world->getObjectsWithinSphere(results, center, radius, BUILDING,
+                                  LS_M0_MAX_RESULTS, 0);
+    size_t np = ps.size();
+    if (np > 16) {
+        np = 16; // cap (postos sao poucos por natureza)
+    }
+    g_orphanPosts.clear();
+    for (size_t pi = 0; pi < np; ++pi) {
+        bool found = false;
+        Ogre::Vector3 ppos(ps[pi].x, ps[pi].y, ps[pi].z);
+        for (uint32_t i = 0; i < results.size() && !found; ++i) {
+            RootObject* o = results[i];
+            if (o == 0) {
+                continue;
+            }
+            Building* b = static_cast<Building*>(o);
+            // Casa por uid (chave) OU por posicao (~6m; predio nao anda).
+            if (uidOf(b) == ps[pi].key
+                || dist2(b->getPosition(), ppos) <= 36.0) {
+                found = true;
+            }
+        }
+        if (!found) {
+            g_orphanPosts.insert(ps[pi].key);
+            pushDemandLine("AVISO: posto \"" + ps[pi].name + "\" NAO existe "
+                           "neste mundo -- remova/re-declare (clique no predio); "
+                           "ninguem sera enviado para la.");
+        }
+    }
+    if (results.stuff != 0) {
+        free(results.stuff);
+        results.stuff = 0;
+        results.count = 0;
+        results.maxSize = 0;
+    }
+}
+
 // ---- Processa UMA viagem ativa (multi-viagem: chamada por plano/rodada).
 // Mesmo corpo provado do fluxo single-haul; o parametro sombreia o antigo
 // global de proposito (zero delta no codigo do caminho critico). ----
@@ -1441,6 +1525,10 @@ void poc029CarregadorTick(GameWorld* world) {
 
     // ---- Quadro de demandas desta rodada (a aba da GUI le o espelho) ----
     g_demandLines.clear();
+    // Saude das declaracoes primeiro (dir.20): divergencia mod-vs-mundo e o
+    // aviso mais importante do quadro -- explica qualquer estranheza antes
+    // que o jogador precise adivinhar.
+    pushDeclarationHealth(world, town);
 
     // ---- Processa TODAS as viagens ativas (multi-viagem) ----
     for (int i = 0; i < HAUL_MAX_ACTIVE; ++i) {

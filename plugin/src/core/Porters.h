@@ -61,6 +61,13 @@ void togglePorter(const hand& h);
 
 int porterCount();
 
+// ---- Saude das declaracoes (diretriz 20: o mod AVISA o que precisa) ----
+// Carregadores declarados em sessao anterior que AINDA nao casaram com um
+// personagem deste mundo (podem nao existir no save carregado). A GUI/quadro
+// de demandas mostra para o jogador decidir (esperar/limpar).
+int  pendingPorterCount();
+void pendingPorterNames(std::vector<std::string>& out, int maxNames);
+
 // ---- Postos ----
 // Declara/remove um predio como posto (idempotente; chave = uid ou pos).
 void declarePost(const std::string& key, const std::string& name,
