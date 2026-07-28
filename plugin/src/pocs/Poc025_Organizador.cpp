@@ -357,6 +357,16 @@ void poc025OrganizadorTick(GameWorld* world) {
             std::map<std::string, int>::iterator it = g_assignedTo.find(uid);
             if (it != g_assignedTo.end()) {
                 ours = it->second;
+                // DECAIMENTO (auditoria 27/07): o ledger era monotono -- morte,
+                // remocao manual ou limpeza deixavam a estacao "cheia" p/ sempre
+                // (ours nunca descia; occupied=max travava freeSlots<=0). Quando
+                // a realidade mostra MENOS gente que o ledger, decai 1/rodada:
+                // cobre o pathing (defasagem legitima de poucas rodadas) e se
+                // auto-corrige apos qualquer perda em ~ours rodadas.
+                if (cur < ours) {
+                    --it->second;
+                    ours = it->second;
+                }
             }
         }
         int occupied = (cur > ours) ? cur : ours;
@@ -479,6 +489,10 @@ void poc025OrganizadorTick(GameWorld* world) {
         diag::log(s.str());
         g_lastLog = g_round;
     }
+}
+
+void poc025ResetAssignments() {
+    g_assignedTo.clear();
 }
 
 } // namespace pocs

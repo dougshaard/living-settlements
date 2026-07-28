@@ -215,14 +215,18 @@ void runPocRound(GameWorld* world, float accumulated) {
         }
         g_modCensusDone = true;
     }
-    if (pocEnv().medEnabled) {
+    // POCs LEGADAS de observacao: GATE MUTUO com os papeis (auditoria 27/07).
+    // A 026 emitia um JOB_MEDIC que o censo da 031 CONTAVA (deficit falso-zero
+    // sob baixas); a 027 guarnecia por fora do ledger da 028 (torre em dobro).
+    // Com o papel ativo, a POC legada correspondente NAO roda.
+    if (pocEnv().medEnabled && !pocEnv().medicRole) {
         try {
             pocs::poc026MedicoTick(world);
         } catch (...) {
             diag::error("POC-MED-1 lancou excecao C++ -- abortada");
         }
     }
-    if (pocEnv().turEnabled) {
+    if (pocEnv().turEnabled && !pocEnv().garrison) {
         try {
             pocs::poc027TorreTick(world);
         } catch (...) {

@@ -147,6 +147,11 @@ std::map<std::string, unsigned long> g_cooldown; // taskKey -> rodada liberada
 // pela saude das declaracoes a cada rodada): alem do AVISO no quadro, o
 // idle-return NAO manda ninguem esperar em terreno vazio.
 std::set<std::string> g_orphanPosts;
+// Fontes REGENERANTES descobertas em campo (arvore/no de recurso de mod que
+// nao decrementa ao remover): riscadas do transporte -- colher e trabalho de
+// PRODUCAO, nao de logistica. Persistem atraves de coldReset (conhecimento
+// sobre o MUNDO, nao sobre a sessao de planos).
+std::set<std::string> g_regenSources;
 
 bool eligible(Character* c) {
     return c != 0 && c->isAnimal() == 0 && !c->isDead() && !c->isUnconcious()
@@ -205,6 +210,11 @@ bool porterAvailable(PlayerInterface* pl, Character* c) {
     if (!eligible(c) || !core::isPorter(c)) {
         return false;
     }
+    if (c->getPermajobCount() != 0) {
+        return false; // ainda com cargos legados: o GOAP disputaria a viagem
+                      // inteira (auditoria 27/07) -- espera a dedicacao limpar
+                      // (1-2 rodadas); so viaja carregador DEDICADO
+    }
     if (pl != 0) {
         hand sel = pl->selectedCharacter;
         if (sel.isValid() && sel.getCharacter() == c) {
@@ -237,6 +247,9 @@ const char* porterUnavailReason(PlayerInterface* pl, Character* c) {
     }
     if (!c->canTakePlayerOrdersAtThisTime()) {
         return "sem-ordens-agora";
+    }
+    if (c->getPermajobCount() != 0) {
+        return "dedicando (ainda com cargos)";
     }
     if (pl != 0) {
         hand sel = pl->selectedCharacter;
@@ -500,8 +513,15 @@ void abortHaul(HaulPlan& g_plan, const std::string& reason,
       << "\" " << g_plan.srcName << " -> " << g_plan.dstName
       << " carregador=\"" << g_plan.haulerName << "\"";
     if (g_plan.pickedUp > 0) {
-        s << " | " << g_plan.pickedUp << " unidade(s) FICAM com o carregador "
-          << "(dentro de inventario; nada se perde)";
+        // HONESTIDADE (auditoria 27/07): a carga fica no INVENTARIO DELE --
+        // se ele morrer, o corpo e saqueavel/some COM os itens; se vivo, o
+        // planejador nao enxerga carga em personagem (v2: descarga automatica).
+        s << " | " << g_plan.pickedUp << " unidade(s) de \"" << g_plan.itemName
+          << "\" ficam NO INVENTARIO dele -- se morto, recupere no corpo; se "
+          << "vivo, descarregue manualmente (v2 tera descarga automatica)";
+        pushDemandLine("ATENCAO: " + g_plan.itemName + " com \""
+                       + g_plan.haulerName + "\" (viagem abortada -- "
+                       "descarregue/recupere)");
     }
     s << " -- reservas liberadas; cooldown e re-derivacao do zero.";
     diag::milestone(s.str());
@@ -545,6 +565,10 @@ void coldReset(const char* why) {
     g_res.clear();
     g_cooldown.clear();
     g_orphanPosts.clear(); // mundo novo: re-avaliar a saude das declaracoes
+    // Gatilho one-shot NAO sobrevive a troca de mundo (auditoria 27/07): o
+    // clique aconteceu no mundo anterior; forcar viagem no save carregado
+    // seria agir sem consentimento. (g_regenSources fica: e fato do mundo.)
+    core::pocEnvMutable().haulOnce = false;
 }
 
 // ---- Transferencia scriptada (RISK-013): move ate `want` unidades de
@@ -860,7 +884,9 @@ bool planHaul(GameWorld* world, PlayerInterface* pl, TownBase* town,
             }
             if (storage) {
                 unitsInStorages += have;
-            } else if (have > 0 && uid != dc.stationUid) {
+            } else if (have > 0 && uid != dc.stationUid
+                       && g_regenSources.count(uid) == 0) {
+                // (fontes regenerantes riscadas: colheita nao e transporte)
                 // Melhor fonte por CAMADAS: excedente declarado vence sempre
                 // (tirar dali ajuda o produtor); dentro da camada, mais
                 // unidades; empate = mais perto da demanda.
@@ -1252,9 +1278,37 @@ void processPlan(GameWorld* world, PlayerInterface* pl, TownBase* town,
         w = g_plan.haulerHand.getCharacter();
     }
     if (w == 0 || !eligible(w)) {
+        // Morte com carga: aponta ONDE (dir.20 -- o corpo e saqueavel/some
+        // com os itens; auditoria 27/07 derrubou o "nada se perde").
+        if (w != 0 && w->isDead() && g_plan.pickedUp > 0) {
+            Ogre::Vector3 bp = w->getPosition();
+            std::ostringstream s;
+            s << "CARGA EM RISCO: \"" << g_plan.haulerName << "\" morreu com "
+              << g_plan.pickedUp << "x \"" << g_plan.itemName
+              << "\" -- recupere no corpo em (" << static_cast<int>(bp.x)
+              << ", " << static_cast<int>(bp.z) << ") antes que suma.";
+            diag::milestone(s.str());
+            pushDemandLine(s.str());
+        }
         abortHaul(g_plan, "carregador indisponivel (sumiu/KO/morto)",
                   taskKeyOf(g_plan.demandUid, g_plan.itemSid));
         return;
+    }
+    // AUTORIDADE DO JOGADOR E SAGRADA -- tambem NO MEIO da viagem (inv.7.1.3;
+    // licao 27/07: "Douglas" nao e avatar especial, e so o char que o dono
+    // mais comanda -- e o mod re-emitia destino CONTRA a ordem dele, travava
+    // e abortava feio). Ordem direta = CEDER na hora: solta reservas, SEM
+    // cooldown na demanda (outro carregador assume na proxima rodada).
+    {
+        CharBody* body = w->getBody();
+        if (body != 0) {
+            Tasker* action = body->getCurrentAction();
+            if (action != 0 && static_cast<int>(action->priority)
+                                   >= static_cast<int>(TP_OBEDIENCE)) {
+                abortHaul(g_plan, "cedida ao jogador (ordem direta sua)", "");
+                return;
+            }
+        }
     }
     Ogre::Vector3 wp = w->getPosition();
     Ogre::Vector3 target = (g_plan.phase == HP_GO_SRC)
@@ -1336,15 +1390,32 @@ void processPlan(GameWorld* world, PlayerInterface* pl, TownBase* town,
         int outSrc = srcBefore - srcAfter;
         int inHaul = haulAfter - haulBefore;
         if (outSrc != inHaul) {
-            std::ostringstream s;
-            s << "HAUL CONSERVACAO VIOLADA na coleta: fonte " << srcBefore
-              << "->" << srcAfter << " (saiu " << outSrc << ") vs carregador "
-              << haulBefore << "->" << haulAfter << " (entrou " << inHaul
-              << "). CARREGADOR DESATIVADO nesta sessao (degraded-safe); "
-              << "TODAS as viagens e reservas liberadas. Investigar antes de religar.";
-            diag::error(s.str());
-            disableHauling(); // libera TODOS os planos (nao so este)
-            return;
+            // FONTE REGENERANTE? Assinatura exata (caso real 27/07, arvore
+            // "*Bigtree" de mod: fonte 100->100, carregador 0->8): a fonte
+            // NAO desceu e o carregador recebeu ~o lote. Isso nao e perda nem
+            // dupe de bau -- e um NO DE RECURSO que repoe na hora. Colher e
+            // trabalho de PRODUCAO: risca a fonte do transporte p/ sempre,
+            // ENTREGA a carga ja em maos (largar seria pior) e segue vivo.
+            if (outSrc == 0 && inHaul > 0 && inHaul <= g_plan.batch * 2) {
+                g_regenSources.insert(g_plan.srcUid);
+                std::ostringstream s;
+                s << "HAUL #" << g_plan.seq << ": fonte \"" << g_plan.srcName
+                  << "\" e REGENERANTE (nao esvazia ao coletar) -- riscada do "
+                  << "transporte; colheita e trabalho de producao. A carga de "
+                  << inHaul << "x \"" << g_plan.itemName
+                  << "\" segue para a entrega normalmente.";
+                diag::milestone(s.str());
+            } else {
+                std::ostringstream s;
+                s << "HAUL CONSERVACAO VIOLADA na coleta: fonte " << srcBefore
+                  << "->" << srcAfter << " (saiu " << outSrc << ") vs carregador "
+                  << haulBefore << "->" << haulAfter << " (entrou " << inHaul
+                  << "). CARREGADOR DESATIVADO nesta sessao (degraded-safe); "
+                  << "TODAS as viagens e reservas liberadas. Investigar antes de religar.";
+                diag::error(s.str());
+                disableHauling(); // libera TODOS os planos (nao so este)
+                return;
+            }
         }
         if (moved <= 0 || inHaul <= 0) {
             abortHaul(g_plan, "coleta nao moveu nada (sem folga de peso/stack)",
@@ -1429,17 +1500,24 @@ void processPlan(GameWorld* world, PlayerInterface* pl, TownBase* town,
               << g_plan.demandName << "\" -- observar a estacao voltar a "
               << "produzir (CONFIRM-HAUL-3).";
             if (haulAfter > 0) {
-                s << " | " << haulAfter << " unidade(s) FICARAM com o "
-                  << "carregador (deposito encheu no meio).";
+                s << " | " << haulAfter << " unidade(s) FICARAM no inventario "
+                  << "do carregador (deposito encheu no meio) -- descarregue "
+                  << "manualmente (v2 tera descarga automatica).";
+                pushDemandLine("ATENCAO: " + g_plan.itemName + " x? com \""
+                               + g_plan.haulerName + "\" (deposito encheu -- "
+                               "descarregue)");
             }
             diag::milestone(s.str());
         } else {
             s << "HAUL #" << g_plan.seq << " FALHA na entrega: deposito \""
               << g_plan.dstName << "\" recusou tudo (encheu no caminho?); a "
-              << "carga (" << haulAfter << ") fica com o carregador \""
-              << g_plan.haulerName << "\" -- nada se perde; cooldown e "
-              << "re-derivacao.";
+              << "carga (" << haulAfter << ") fica NO INVENTARIO de \""
+              << g_plan.haulerName << "\" -- descarregue manualmente (v2 tera "
+              << "descarga automatica); cooldown e re-derivacao.";
             diag::milestone(s.str());
+            pushDemandLine("ATENCAO: " + g_plan.itemName + " com \""
+                           + g_plan.haulerName + "\" (deposito cheio -- "
+                           "descarregue)");
         }
         g_plan = HaulPlan();
         return;
@@ -1499,17 +1577,6 @@ void poc029CarregadorTick(GameWorld* world) {
         }
     }
 
-    // Dedicar carregadores (liberar cargos de producao antigos) e mandar os
-    // ociosos ao posto -- so com transporte auto ligado. Dedicar roda mesmo
-    // sem posto declarado (carregador dedicado deve ficar livre de qualquer
-    // forma); voltar-ao-posto exige um posto.
-    if (env.haul && core::porterCount() > 0) {
-        dedicatePorters(world, pl, mode, fence);
-    }
-    if (env.haul && core::postCount() > 0) {
-        returnIdlePortersToPosts(world, pl, mode, fence);
-    }
-
     // Ancora da base (padrao das POCs).
     Character* anchor = 0;
     {
@@ -1536,9 +1603,20 @@ void poc029CarregadorTick(GameWorld* world) {
     // ---- Quadro de demandas desta rodada (a aba da GUI le o espelho) ----
     g_demandLines.clear();
     // Saude das declaracoes primeiro (dir.20): divergencia mod-vs-mundo e o
-    // aviso mais importante do quadro -- explica qualquer estranheza antes
-    // que o jogador precise adivinhar.
+    // aviso mais importante do quadro -- e o recalculo de g_orphanPosts tem
+    // que vir ANTES do idle-return (auditoria 27/07: a ordem antiga usava o
+    // veredito da rodada anterior e, na 1a rodada pos-load, mandava gente a
+    // posto que nao existe neste mundo).
     pushDeclarationHealth(world, town);
+
+    // Dedicar carregadores e mandar ociosos ao posto -- tambem sob "1 ciclo"
+    // (auditoria 27/07: o botao do painel recrutava sem NUNCA dedicar).
+    if ((env.haul || env.haulOnce) && core::porterCount() > 0) {
+        dedicatePorters(world, pl, mode, fence);
+    }
+    if ((env.haul || env.haulOnce) && core::postCount() > 0) {
+        returnIdlePortersToPosts(world, pl, mode, fence);
+    }
 
     // ---- Processa TODAS as viagens ativas (multi-viagem) ----
     for (int i = 0; i < HAUL_MAX_ACTIVE; ++i) {

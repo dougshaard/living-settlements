@@ -4,6 +4,7 @@
 //   remocao via adapters::emitRemovePermajob (choke unico, cerca de escrita)
 // Caps duros: orcamento de remocoes por rodada + guarda por personagem.
 #include "pocs/Poc030_LimparCargos.h"
+#include "pocs/Poc025_Organizador.h" // reset do ledger do organizador
 #include "core/PocEnv.h"
 #include "core/Diagnostics.h"
 #include "core/LifecycleGate.h"
@@ -39,7 +40,15 @@ void poc030LimparCargosTick(GameWorld* world) {
     }
     core::CoordMode mode = core::evaluateLifecycle(world, true);
     if (mode != core::MODE_OBSERVE_AND_ACT) {
-        return; // load/reset: flag fica armada, tenta na proxima rodada
+        // MUNDO MUDANDO (load/reset): DESARMAR, nao adiar (auditoria 27/07).
+        // O clique de consentimento aconteceu no mundo ANTERIOR -- executar a
+        // limpeza no save que carregar seria agir sem autorizacao (o wipe
+        // destruiria cargos artesanais que nenhum reconciliador repoe). O
+        // jogador clica de novo no mundo novo se quiser.
+        core::pocEnvMutable().clearJobs = false;
+        diag::milestone("LIMPEZA: cancelada (o mundo mudou antes de executar) "
+                        "-- clique de novo no painel se ainda quiser limpar.");
+        return;
     }
     PlayerInterface* pl = world->player;
     if (pl == 0) {
@@ -103,12 +112,14 @@ void poc030LimparCargosTick(GameWorld* world) {
         return;
     }
 
+    // Zera o ledger do organizador: sem isto, as estacoes que ele encheu
+    // nesta sessao ficariam "cheias" para sempre (auditoria 27/07) e o
+    // "recompoe a cidade" abaixo seria falso.
+    poc025ResetAssignments();
     std::ostringstream s;
     s << "LIMPEZA CONCLUIDA: " << g_totalRemoved << " cargo(s) removido(s) em "
       << g_rounds << " rodada(s); roster ZERADO. Orquestrador e Guarnicao "
-      << "recompoem a cidade nas proximas rodadas (por necessidade e skill). "
-      << "Obs: o cargo de medico da POC de observacao nao re-emite nesta "
-      << "sessao (single-shot).";
+      << "recompoem a cidade nas proximas rodadas (por necessidade e skill).";
     diag::milestone(s.str());
     g_totalRemoved = 0;
     g_rounds = 0;

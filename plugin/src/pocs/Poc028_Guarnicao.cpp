@@ -327,11 +327,24 @@ void poc028GuarnicaoTick(GameWorld* world) {
         if (us == 0) {
             continue;
         }
-        // Ja guarnecida? (algum candidato ou ocupante com cargo p/ ela)
+        // Ja guarnecida? Varre o roster INTEIRO, nao so os candidatos
+        // (auditoria 27/07): guarda em KO ou recrutado p/ producao saia de
+        // cand[] e o cargo dele ficava invisivel -> torre guarnecida em
+        // DOBRO (2 chars presos numa torre de 1 slot p/ sempre). Cargo de
+        // char VIVO conta como guarnicao -- KO acorda e volta; so morte
+        // libera a vaga de verdade.
         bool manned = false;
-        for (int w = 0; w < ncand && !manned; ++w) {
-            if (candTurrets[w] > 0 && hasTurretCargoFor(cand[w], ts.uid)) {
-                manned = true;
+        {
+            lektor<Character*>& allc = pl->playerCharacters;
+            uint32_t na = allc.size();
+            if (na > GAR_MAX_CHARS) {
+                na = GAR_MAX_CHARS;
+            }
+            for (uint32_t w = 0; w < na && !manned; ++w) {
+                Character* c = allc[w];
+                if (c != 0 && !c->isDead() && hasTurretCargoFor(c, ts.uid)) {
+                    manned = true;
+                }
             }
         }
         if (manned) {

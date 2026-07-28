@@ -14,6 +14,12 @@ namespace pocs {
 
 void poc025OrganizadorTick(GameWorld* world);
 
+// Zera o ledger interno de atribuicoes (estacao -> quantos NOS colocamos).
+// Chamado pela LIMPEZA DE CARGOS (Poc030) ao concluir: sem isto, as estacoes
+// que o organizador encheu ficavam "cheias" para sempre apos o wipe
+// (auditoria 27/07 -- ledger monotono + occupied=max(cur,ours)).
+void poc025ResetAssignments();
+
 } // namespace pocs
 } // namespace ls
 
